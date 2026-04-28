@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useApp } from "@/shared/store/useApp";
+import { useAuthStore } from "@/shared/store/useAuthStore";
 import { X, Box, Users, Calculator, FileText, Home as HomeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -7,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
 export function PropertyDrawer() {
-  const { pins, selectedPinId, setSelectedPinId, apartments, setSelectedApartment, openOverlay, user } = useApp();
+  const { pins, selectedPinId, setSelectedPinId, apartments, setSelectedApartment, openOverlay } = useApp();
+  const { user } = useAuthStore();
   const pin = useMemo(() => pins.find((p) => p.id === selectedPinId), [pins, selectedPinId]);
   if (!pin) return null;
 
@@ -81,15 +83,19 @@ export function PropertyDrawer() {
           <TabsContent value="3d" className="mt-0">
             <div className="rounded-3xl bg-gradient-sky border border-border p-6 text-center">
               <Box className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-              <h3 className="font-display text-xl mb-1">3D tour</h3>
+              <h3 className="font-display text-xl mb-1">3D Room World</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                {pin.scan === "scanned" ? "A 3D scan exists for this property." : "No 3D scan yet."}
+                {pin.scan === "scanned"
+                  ? "Explore this property in an immersive 3D environment with AI agents."
+                  : "Upload a panorama to generate a 3D world for this property."}
               </p>
               <div className="flex flex-col gap-2">
-                <Button className="rounded-2xl" disabled>
-                  {pin.scan === "scanned" ? "View 3D world (coming soon)" : "Scan with phone (coming soon)"}
+                <Button
+                  className="rounded-2xl shadow-sims"
+                  onClick={() => openOverlay("room-sim")}
+                >
+                  {pin.scan === "scanned" ? "🌍 Enter 3D World" : "📷 Upload & Generate 3D"}
                 </Button>
-                <p className="text-xs text-muted-foreground">3D renderer placeholder — wiring contract is ready.</p>
               </div>
             </div>
           </TabsContent>

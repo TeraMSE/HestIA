@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMap } from "react-leaflet";
 import { useApp, OverlayId } from "@/shared/store/useApp";
-import { LayoutDashboard, Users, Home, Calculator, History, Sparkles, MessageCircle, X } from "lucide-react";
+import { LayoutDashboard, Users, Home, Calculator, History, Sparkles, MessageCircle, Box, X } from "lucide-react";
 
 interface ToolDef { id: Exclude<OverlayId, null>; label: string; Icon: typeof Users }
 
@@ -9,6 +9,7 @@ const TOOLS: ToolDef[] = [
   { id: "module-dashboard",      label: "Dashboard",  Icon: LayoutDashboard },
   { id: "persona-builder",       label: "Personas",   Icon: Users },
   { id: "apartment-configurator",label: "Apartment",  Icon: Home },
+  { id: "room-sim",              label: "3D World",   Icon: Box },
   { id: "simulation-runner",     label: "Simulate",   Icon: Sparkles },
   { id: "material-agent",        label: "Materials",  Icon: Calculator },
   { id: "reports",               label: "Reports",    Icon: History },

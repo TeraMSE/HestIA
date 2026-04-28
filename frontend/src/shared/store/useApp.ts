@@ -10,7 +10,8 @@ export type OverlayId =
   | "visual-replay"
   | "reports"
   | "material-agent"
-  | "admin-assistant";
+  | "admin-assistant"
+  | "room-sim";
 
 interface AppState {
   // Auth

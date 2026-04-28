@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { useApp } from "@/shared/store/useApp";
 import { MapShell } from "@/features/map/MapShell";
 import { MapOverlays } from "@/features/map/MapOverlays";
@@ -12,13 +10,10 @@ import { VisualReplay } from "@/features/replay/VisualReplay";
 import { Reports } from "@/features/reports/Reports";
 import { MaterialAgent } from "@/features/material-agent/MaterialAgent";
 import { AdminAssistant } from "@/features/admin-assistant/AdminAssistant";
+import { RoomSimOverlay } from "@/features/room-sim/RoomSimOverlay";
 
 export default function MapHome() {
-  const { user, activeOverlay } = useApp();
-  const navigate = useNavigate();
-
-  useEffect(() => { if (!user) navigate("/"); }, [user, navigate]);
-  if (!user) return null;
+  const { activeOverlay } = useApp();
 
   return (
     <div className="fixed inset-0 overflow-hidden">
@@ -34,6 +29,7 @@ export default function MapHome() {
       {activeOverlay === "reports" && <Reports />}
       {activeOverlay === "material-agent" && <MaterialAgent />}
       {activeOverlay === "admin-assistant" && <AdminAssistant />}
+      {activeOverlay === "room-sim" && <RoomSimOverlay />}
     </div>
   );
 }

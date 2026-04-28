@@ -73,7 +73,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       localStorage.setItem("access_token", response.data.access);
       localStorage.setItem("refresh_token", response.data.refresh);
 
-      const userResponse = await api.get("/auth/me/");
+      const userResponse = await api.get("/auth/users/me/");
       const userData: User = userResponse.data;
       localStorage.setItem("user", JSON.stringify(userData));
       set({ user: userData, isLoading: false });

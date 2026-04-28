@@ -270,3 +270,35 @@
   animation: holo-pulse-ring 2.2s ease-out infinite;
   pointer-events: none;
 }
+
+/* ===========================================================
+   ROOM SIMULATION OVERLAY
+   =========================================================== */
+
+/* Agent floating labels */
+.rsim-lbl {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: rgba(14, 14, 28, 0.85);
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 9px;
+  color: #fff;
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: center;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0 12px hsl(var(--holo-cyan) / 0.3);
+  z-index: 50;
+}
+.rsim-act {
+  display: block;
+  color: hsl(var(--holo-cyan));
+  font-size: 8px;
+}
+.rsim-mood {
+  margin-left: 3px;
+  font-size: 8px;
+}
+
