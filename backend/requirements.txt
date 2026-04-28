@@ -1,4 +1,4 @@
-Django>=4.2,<5.0
+Django>=5.2,<6.0
 Pillow>=10.0.0
 torch>=2.0.0
 torchvision>=0.15.0
@@ -10,3 +10,8 @@ tqdm>=4.65.0
 pylsd-nova>=1.2.0
 opencv-python>=4.7.0
 requests>=2.28.0
+djangorestframework>=3.14.0
+djoser>=2.2.5
+django-cors-headers>=4.3.0
+PyJWT>=2.8.0
+python-decouple>=3.8
