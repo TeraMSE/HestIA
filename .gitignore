@@ -1,0 +1,40 @@
+# Environments
+.env
+.venv
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Django
+db.sqlite3
+media/
+backend/media/jobs/
+
+# Node / Vite / Bun
+node_modules/
+dist/
+dist-ssr/
+build/
+.npm
+.eslintcache
+
+# Machine Learning / Data
+*.pth
+*.pt
+logs/
+output/
+assets/inferenced/
+checkpoints/
+
+# OS / IDE
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
