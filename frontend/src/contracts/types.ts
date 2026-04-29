@@ -207,7 +207,16 @@ export interface MaterialEstimate {
 
 // === Map pins ===
 export type PinKind = "property" | "user_pin" | "simulation";
+export type PoiType = "hospital" | "school" | "commodity" | "other";
 export type ScanStatus = "scanned" | "unscanned";
+
+export interface POINode {
+  id: string;
+  lat: number;
+  lng: number;
+  type: PoiType;
+  name?: string;
+}
 
 export interface PropertyPin {
   id: string;

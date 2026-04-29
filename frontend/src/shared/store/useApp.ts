@@ -27,6 +27,8 @@ interface AppState {
   setPins: (p: PropertyPin[]) => void;
   selectedPinId: string | null;
   setSelectedPinId: (id: string | null) => void;
+  activeFilters: string[];
+  toggleFilter: (filter: string) => void;
 
   // Personas / apartments cache
   personas: PersonaProfile[];
@@ -73,6 +75,12 @@ export const useApp = create<AppState>((set) => ({
   setPins: (pins) => set({ pins }),
   selectedPinId: null,
   setSelectedPinId: (selectedPinId) => set({ selectedPinId }),
+  activeFilters: ["property", "hospital", "school", "commodity", "user_pin"],
+  toggleFilter: (filter) => set((state) => ({
+    activeFilters: state.activeFilters.includes(filter)
+      ? state.activeFilters.filter((f) => f !== filter)
+      : [...state.activeFilters, filter],
+  })),
 
   personas: [],
   setPersonas: (personas) => set({ personas }),

@@ -6,9 +6,17 @@ import { Plumbob } from "@/features/onboarding/Plumbob";
 import { useApp } from "@/shared/store/useApp";
 import { useNavigate } from "react-router-dom";
 import { pinService, personaService, apartmentService } from "@/services/mockApi";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator
+} from "@/components/ui/dropdown-menu";
 
 export function MapOverlays() {
-  const { user, setUser, setPins, setPersonas, setApartments, pins, setSelectedPinId, selectedPinId } = useApp();
+  const { user, setUser, setPins, setPersonas, setApartments, pins, setSelectedPinId, selectedPinId, activeFilters, toggleFilter } = useApp();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -64,9 +72,23 @@ export function MapOverlays() {
           />
         </div>
         <div className="holo-surface rounded-2xl">
-          <Button variant="ghost" size="icon" className="rounded-2xl" aria-label="Filter pins">
-            <Filter className="h-4 w-4" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-2xl" aria-label="Filter pins">
+                <Filter className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48 holo-surface bg-background/80 backdrop-blur-xl border-white/10">
+              <DropdownMenuLabel>Show on map</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem checked={activeFilters.includes("property")} onCheckedChange={() => toggleFilter("property")}>Properties</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={activeFilters.includes("hospital")} onCheckedChange={() => toggleFilter("hospital")}>Hospitals</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={activeFilters.includes("school")} onCheckedChange={() => toggleFilter("school")}>Schools</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={activeFilters.includes("commodity")} onCheckedChange={() => toggleFilter("commodity")}>Commodities</DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem checked={activeFilters.includes("user_pin")} onCheckedChange={() => toggleFilter("user_pin")}>My Pins</DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="holo-surface rounded-2xl">
           <Button variant="ghost" size="icon" className="rounded-2xl" aria-label="Map layers">
