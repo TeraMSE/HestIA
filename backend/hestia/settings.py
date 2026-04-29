@@ -189,7 +189,7 @@ SIMPLE_JWT = {
 DJOSER = {
     "USER_ID_FIELD": "id",
     "LOGIN_FIELD": "email",
-    "USER_CREATE_PASSWORD_RETYPE": True,
+    "USER_CREATE_PASSWORD_RETYPE": False,
     "ACTIVATION_URL": "auth/activate/{uid}/{token}/",
     "SEND_ACTIVATION_EMAIL": False,
     "SERIALIZERS": {

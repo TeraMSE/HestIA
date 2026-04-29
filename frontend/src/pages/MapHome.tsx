@@ -10,7 +10,6 @@ import { VisualReplay } from "@/features/replay/VisualReplay";
 import { Reports } from "@/features/reports/Reports";
 import { MaterialAgent } from "@/features/material-agent/MaterialAgent";
 import { AdminAssistant } from "@/features/admin-assistant/AdminAssistant";
-import { RoomSimOverlay } from "@/features/room-sim/RoomSimOverlay";
 import { NeighborhoodIntel } from "@/features/neighborhood/NeighborhoodIntel";
 
 export default function MapHome() {
@@ -30,7 +29,6 @@ export default function MapHome() {
       {activeOverlay === "reports" && <Reports />}
       {activeOverlay === "material-agent" && <MaterialAgent />}
       {activeOverlay === "admin-assistant" && <AdminAssistant />}
-      {activeOverlay === "room-sim" && <RoomSimOverlay />}
       {activeOverlay === "neighborhood-intel" && <NeighborhoodIntel />}
     </div>
   );

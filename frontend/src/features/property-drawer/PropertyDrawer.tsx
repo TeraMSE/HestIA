@@ -138,7 +138,7 @@ export function PropertyDrawer() {
               <div className="flex flex-col gap-2">
                 <Button
                   className="rounded-2xl shadow-sims"
-                  onClick={() => openOverlay("room-sim")}
+                  onClick={() => openOverlay("visual-replay")}
                 >
                   {pin.scan === "scanned" ? "🌍 Enter 3D World" : "📷 Upload & Generate 3D"}
                 </Button>

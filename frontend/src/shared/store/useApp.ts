@@ -12,7 +12,6 @@ export type OverlayId =
   | "reports"
   | "material-agent"
   | "admin-assistant"
-  | "room-sim"
   | "neighborhood-intel";
 
 interface AppState {
@@ -57,14 +56,6 @@ interface AppState {
   // Run + replay
   lastResult: CompatibilityResult | null;
   setLastResult: (r: CompatibilityResult | null) => void;
-  frameSequence: FrameSequence | null;
-  setFrameSequence: (f: FrameSequence | null) => void;
-  currentFrame: number;
-  setCurrentFrame: (n: number) => void;
-  playing: boolean;
-  setPlaying: (b: boolean) => void;
-  speed: 0.5 | 1 | 2 | 4;
-  setSpeed: (s: 0.5 | 1 | 2 | 4) => void;
   replayMode: "2d" | "3d";
   setReplayMode: (m: "2d" | "3d") => void;
 
@@ -112,14 +103,6 @@ export const useApp = create<AppState>((set) => ({
 
   lastResult: null,
   setLastResult: (lastResult) => set({ lastResult }),
-  frameSequence: null,
-  setFrameSequence: (frameSequence) => set({ frameSequence, currentFrame: 0 }),
-  currentFrame: 0,
-  setCurrentFrame: (currentFrame) => set({ currentFrame }),
-  playing: false,
-  setPlaying: (playing) => set({ playing }),
-  speed: 1,
-  setSpeed: (speed) => set({ speed }),
   replayMode: "2d",
   setReplayMode: (replayMode) => set({ replayMode }),
 

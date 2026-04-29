@@ -28,6 +28,7 @@ export class AgentManager {
   furnitureMgr: FurnitureManager | null = null;
   agents: Agent[] = [];
   selected: Agent | null = null;
+  autoTickEnabled: boolean = true;
   private _autonomyEnabled = true;
 
   private _labelsRoot: HTMLDivElement | null = null;
@@ -225,7 +226,7 @@ export class AgentManager {
     grp.add(selRing);
     agent._selRing = selRing;
 
-    grp.position.set(spawn.x, 0, spawn.z);
+    grp.position.set(spawn.x, FLOOR_Y, spawn.z);
     this.scene.add(grp);
     agent.group = grp;
 
@@ -269,6 +270,7 @@ export class AgentManager {
     tz: number
   ): { x: number; z: number } {
     if (this._inside(tx, tz)) return { x: tx, z: tz };
+    if (!this._inside(fx, fz)) return { x: tx, z: tz }; // Allow walking if already outside
     let lo = 0,
       hi = 1;
     for (let i = 0; i < 8; i++) {
@@ -296,11 +298,11 @@ export class AgentManager {
     const mnZ = Math.min(...zs),
       mxZ = Math.max(...zs);
     for (let i = 0; i < 30; i++) {
-      const rx = randR(mnX + 0.3, mxX - 0.3);
-      const rz = randR(mnZ + 0.3, mxZ - 0.3);
+      const rx = randR(mnX + 0.1, mxX - 0.1);
+      const rz = randR(mnZ + 0.1, mxZ - 0.1);
       if (this._inside(rx, rz)) return { x: rx, z: rz };
     }
-    return { x: agent.x, z: agent.z };
+    return { x: (mnX + mxX) / 2, z: (mnZ + mxZ) / 2 };
   }
 
   // ── AUTONOMY WITH FURNITURE ─────────────────────────────────────
@@ -416,17 +418,36 @@ export class AgentManager {
       const d = Math.hypot(dx, dz);
       if (d > 0.08) {
         const step = Math.min(MOVE_SPEED * dt, d);
-        const nx = agent.x + (dx / d) * step;
-        const nz = agent.z + (dz / d) * step;
-        const c = this._clampToFloor(agent.x, agent.z, nx, nz);
-        agent.x = c.x;
-        agent.z = c.z;
+        let nx = agent.x + (dx / d) * step;
+        let nz = agent.z + (dz / d) * step;
+        
+        // Robust sliding collision
+        const isInside = this.roomEnv.containsPoint(agent.x, agent.z);
+        if (isInside) {
+          const canMoveX = this.roomEnv.containsPoint(nx, agent.z);
+          const canMoveZ = this.roomEnv.containsPoint(agent.x, nz);
+          
+          if (!this.roomEnv.containsPoint(nx, nz)) {
+            if (canMoveX && !canMoveZ) nz = agent.z;
+            else if (canMoveZ && !canMoveX) nx = agent.x;
+            else if (canMoveX && canMoveZ) nz = agent.z; // arbitrary slide
+            else {
+              nx = agent.x;
+              nz = agent.z;
+              // We DO NOT reset targetX/Z. They will keep walking in place until the next scenario phase,
+              // rather than getting permanently stuck in the idle state.
+            }
+          }
+        }
+        
+        if (Number.isNaN(nx) || Number.isNaN(step) || dt === 0) {
+          console.error("DEBUG AGENT ERROR:", { dt, d, step, nx, nz, agent });
+        }
+        
+        agent.x = nx;
+        agent.z = nz;
         agent.facing = Math.atan2(dx, dz);
         agent._speed = MOVE_SPEED;
-        if (Math.hypot(c.x - nx, c.z - nz) > 0.01) {
-          agent.targetX = agent.x;
-          agent.targetZ = agent.z;
-        }
       } else {
         agent._speed = 0;
 
@@ -438,23 +459,27 @@ export class AgentManager {
             agent.isSitting = false;
             agent.currentAction = "sleeping";
             agent.state.modify({ energy: 25, comfort: 10 });
-            // Wake up after some time
-            setTimeout(() => {
-              agent.isSleeping = false;
-              agent.furnitureTarget = null;
-              agent.currentAction = "idle";
-            }, 8000 + Math.random() * 5000);
+            // Wake up after some time only if auto tick is enabled
+            if (this.autoTickEnabled) {
+              setTimeout(() => {
+                agent.isSleeping = false;
+                agent.furnitureTarget = null;
+                agent.currentAction = "idle";
+              }, 8000 + Math.random() * 5000);
+            }
             agent.furnitureTarget = null;
           } else if (ft.type === "chair") {
             agent.isSitting = true;
             agent.isSleeping = false;
             agent.currentAction = "sitting";
             agent.state.modify({ comfort: 20 });
-            setTimeout(() => {
-              agent.isSitting = false;
-              agent.furnitureTarget = null;
-              agent.currentAction = "idle";
-            }, 5000 + Math.random() * 4000);
+            if (this.autoTickEnabled) {
+              setTimeout(() => {
+                agent.isSitting = false;
+                agent.furnitureTarget = null;
+                agent.currentAction = "idle";
+              }, 5000 + Math.random() * 4000);
+            }
             agent.furnitureTarget = null;
           } else {
             agent.furnitureTarget = null;
@@ -507,8 +532,22 @@ export class AgentManager {
 
       // Animation state — driven by LS action_id when available, otherwise by flags
       if (agent.animEngine) {
-        const animState = this._resolveAnimState(agent);
-        agent.animEngine.setState(animState);
+        if (agent.lsActionId) {
+          const animState = this._resolveAnimState(agent);
+          agent.animEngine.setState(animState);
+        } else {
+          if (agent.isMoving) {
+            agent.animEngine.setState("walk");
+          } else if (agent.currentAction === "sleeping" || agent.currentAction === "sleep" || agent.isSleeping) {
+            agent.animEngine.setState("sleep");
+          } else if (agent.currentAction === "sitting" || agent.currentAction === "sit" || agent.isSitting) {
+            agent.animEngine.setState("sit");
+          } else if (agent.currentAction === "resting") {
+            agent.animEngine.setState("sleep");
+          } else {
+            agent.animEngine.setState("idle");
+          }
+        }
         agent.animEngine.update(dt);
       }
 
@@ -537,12 +576,38 @@ export class AgentManager {
         }
       }
 
-      if (this._autonomyEnabled) this._autoTick(agent, now);
+      if (this.autoTickEnabled && this._autonomyEnabled) {
+        this._autoTick(agent, now);
+      }
     }
   }
 
-  // ── UPDATE calls _autoTick conditionally ──────────────────────────────
-  // (original update() already calls _autoTick at the bottom of the loop)
+  // ── EXTERNAL SCENARIO CONTROL ───────────────────────────────────
+  forceTarget(agent: Agent, x: number, z: number, action: string = "walking") {
+    agent.targetX = x;
+    agent.targetZ = z;
+    agent.currentAction = action;
+    agent.isSleeping = false;
+    agent.isSitting = false;
+    agent.furnitureTarget = null;
+  }
+
+  forceFurniture(agent: Agent, type: string, x: number, z: number) {
+    agent.targetX = x;
+    agent.targetZ = z;
+    agent.furnitureTarget = { type: type as any, x, z };
+    agent.currentAction = `walking_to_${type}`;
+    agent.isSleeping = false;
+    agent.isSitting = false;
+  }
+
+  forceAction(agent: Agent, action: string) {
+    agent.currentAction = action;
+    agent.targetX = agent.x;
+    agent.targetZ = agent.z;
+    agent.isSleeping = action === "sleep" || action === "sleeping";
+    agent.isSitting = action === "sit" || action === "sitting";
+  }
 
   dispose() {
     for (const agent of this.agents) {
