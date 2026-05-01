@@ -76,29 +76,56 @@ HestIA/
 ### Prerequisites
 - Python 3.11+
 - Node.js 18+
-- Ollama (for LLM simulation) — `ollama pull llama3.2:3b`
+- Ollama (for local LLM simulation) — install from https://ollama.com then run `ollama pull llama3.2:3b`
 
-### Backend
+### 1 — Clone
+
+```bash
+git clone https://github.com/TeraMSE/HestIA.git
+cd HestIA
+```
+
+### 2 — Backend
 
 ```bash
 cd backend
+
+# Create and activate virtual environment
 python -m venv .venv
-.venv\Scripts\activate          # Windows
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # Linux / macOS
+
+# Install dependencies
 pip install -r requirements.txt
-cp .env.example .env            # fill in your keys
+
+# Configure environment
+copy .env.example .env        # Windows
+# cp .env.example .env        # Linux / macOS
+# → Open .env and set SECRET_KEY at minimum. Everything else works with defaults.
+
+# Run database migrations
 python manage.py migrate
-python manage.py runserver
+
+# Start the server
+python manage.py runserver    # → http://localhost:8000
 ```
 
-### Frontend
+### 3 — Frontend
 
 ```bash
 cd frontend
-npm install
-npm run dev
-```
 
-App runs at **http://localhost:8081** (or your Vite port).
+# Install dependencies
+npm install
+
+# Configure environment
+copy .env.example .env.local  # Windows
+# cp .env.example .env.local  # Linux / macOS
+# → The default VITE_API_URL=http://localhost:8000 works for local dev.
+
+# Start the dev server
+npm run dev                   # → http://localhost:5173 (or next available port)
+```
 
 ---
 
