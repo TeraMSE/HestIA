@@ -8,12 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { useApp } from "@/shared/store/useApp";
+import { useAuthStore } from "@/shared/store/useAuthStore";
 import { toast } from "sonner";
-import { personaService } from "@/services/mockApi";
 import type { UserRole } from "@/contracts/types";
 
-const TOTAL = 10;
+const TOTAL = 11;
 
 export default function Onboarding() {
   const [step, setStep] = useState(0); // 0 = welcome
@@ -30,35 +29,43 @@ export default function Onboarding() {
   const [smoker, setSmoker] = useState(false);
   const [schedule, setSchedule] = useState<"early_bird" | "night_owl" | "flexible">("flexible");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
-  const { setUser } = useApp();
+  const { signup } = useAuthStore();
   const navigate = useNavigate();
 
   const next = () => setStep((s) => Math.min(TOTAL, s + 1));
   const back = () => setStep((s) => Math.max(0, s - 1));
+
+  const passwordValid = password.length >= 8 && password === confirmPassword;
 
   const finish = async () => {
     if (!role || !email.includes("@") || !name.trim()) {
       toast.error("Please fill name and a valid email.");
       return;
     }
-    const user = {
-      id: `u_${Math.random().toString(36).slice(2, 8)}`,
-      email,
-      displayName: name,
-      role,
-      avatarColor: "#a0e7e5",
-    };
-    setUser(user);
-    await personaService.save({
-      name: `${name} (you)`,
-      avatarColor: "#a0e7e5",
-      bigFive: { openness, conscientiousness, extraversion, agreeableness, neuroticism },
-      lifestyle: { noiseTolerance, cleanliness, thermalSensitivity: thermal, smoker, schedule },
-      traitCoverage: 100,
-    });
-    toast.success(`Welcome, ${name}!`);
-    navigate("/map");
+    if (!passwordValid) {
+      toast.error("Passwords must match and be at least 8 characters.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Split display name into first/last (use whole name as first_name if no space)
+      const parts = name.trim().split(" ");
+      const firstName = parts[0];
+      const lastName = parts.slice(1).join(" ") || "";
+
+      await signup(email, password, firstName, lastName, role);
+      toast.success(`Welcome to HestIA, ${firstName}! 🎉`);
+      navigate("/map");
+    } catch {
+      toast.error("Account creation failed. Please try again.");
+      setIsLoading(false);
+    }
   };
 
   // === Welcome ===
@@ -70,9 +77,19 @@ export default function Onboarding() {
         <p className="text-xl text-muted-foreground max-w-xl mb-10">
           Find your home, your way. A map-first, Sims-inspired real estate experience for Tunisia.
         </p>
-        <Button size="lg" className="rounded-full px-12 shadow-sims text-lg" onClick={() => setStep(1)}>
-          Begin →
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-4 items-center">
+          <Button size="lg" className="rounded-full px-12 shadow-sims text-lg" onClick={() => setStep(1)}>
+            Begin →
+          </Button>
+          <Button
+            size="lg"
+            variant="outline"
+            className="rounded-full px-12 text-lg"
+            onClick={() => navigate("/login")}
+          >
+            Login instead
+          </Button>
+        </div>
         <p className="mt-6 text-sm text-muted-foreground">10 quick questions · about 2 minutes</p>
       </main>
     );
@@ -178,7 +195,7 @@ export default function Onboarding() {
   // === Step 9: email ===
   if (step === 9) {
     return (
-      <OnboardingStep step={9} total={TOTAL} question="Create your account" hint="We use email to save your personas and pins." onBack={back} onNext={next} nextDisabled={!email.includes("@")}>
+      <OnboardingStep step={9} total={TOTAL} question="What's your email?" hint="We use email to save your personas and pins." onBack={back} onNext={next} nextDisabled={!email.includes("@")}>
         <Input
           autoFocus
           type="email"
@@ -191,9 +208,61 @@ export default function Onboarding() {
     );
   }
 
-  // === Step 10: drop into map ===
+  // === Step 10: Password ===
+  if (step === 10) {
+    return (
+      <OnboardingStep
+        step={10}
+        total={TOTAL}
+        question="Create a password"
+        hint="At least 8 characters. You'll use this to log back in."
+        onBack={back}
+        onNext={next}
+        nextDisabled={!passwordValid}
+      >
+        <div className="max-w-md mx-auto flex flex-col gap-4">
+          <div className="relative">
+            <Input
+              autoFocus
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              className="h-16 text-xl text-center rounded-2xl shadow-soft pr-14"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition text-sm"
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
+          <Input
+            type={showPassword ? "text" : "password"}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Confirm password"
+            className="h-16 text-xl text-center rounded-2xl shadow-soft"
+          />
+          {confirmPassword && !passwordValid && (
+            <p className="text-sm text-destructive text-center">
+              {password.length < 8
+                ? "Password must be at least 8 characters."
+                : "Passwords don't match."}
+            </p>
+          )}
+          {passwordValid && (
+            <p className="text-sm text-green-600 text-center">✓ Passwords match</p>
+          )}
+        </div>
+      </OnboardingStep>
+    );
+  }
+
+  // === Step 11: drop into map ===
   return (
-    <OnboardingStep step={10} total={TOTAL} question={`All set, ${name}!`} hint="Let's drop you on the map." onBack={back} onNext={finish} nextLabel="Enter the map ✨">
+    <OnboardingStep step={11} total={TOTAL} question={`All set, ${name}!`} hint="Let's drop you on the map." onBack={back} onNext={finish} nextLabel={isLoading ? "Creating account…" : "Enter the map ✨"} nextDisabled={isLoading}>
       <div className="flex justify-center">
         <Plumbob className="h-32 w-32 animate-plumbob" />
       </div>

@@ -31,10 +31,28 @@ output/
 assets/inferenced/
 checkpoints/
 
-# OS / IDE
+# AI model caches (GDINO, HuggingFace, etc.)
+backend/checkpoints/gdino/
+.cache/
+**/chroma_db/
+**/chroma-data/
+
+# HestIA-LS runtime caches (noise, neighborhood, travel time)
+backend/noise_cache/
+backend/neighborhood_cache/
+backend/travel_cache/
+noise_cache/
+neighborhood_cache/
+travel_cache/
+
+# IDE / Editor
 .vscode/
+.claude/
 .DS_Store
 Thumbs.db
 
 # Logs
 *.log
+
+# Gemini / AI assistant
+.gemini/

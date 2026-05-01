@@ -149,7 +149,8 @@ def run_inference_on_image(pth: Path, img_path: Path, output_dir: Path,
     write layout JSON to output_dir, and return the JSON path.
     Called by runner.py as the inference step.
     """
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    from room_sim.pipeline.gpu_utils import get_device
+    device = get_device()
 
     # Load model
     net = utils.load_trained_model(HorizonNet, str(pth)).to(device)

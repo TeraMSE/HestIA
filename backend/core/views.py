@@ -1,3 +1,9 @@
+import urllib.request
+import urllib.parse
+import json as json_module
+import hashlib
+
+from django.core.cache import cache
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -10,8 +16,9 @@ from datetime import datetime, timezone
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 
-from .models import Property, Panorama
+from .models import Property, Panorama, PropertyInterest
 from .serializers import PropertyListSerializer, PropertyDetailSerializer, PanoramaSerializer
+from users.models import UserPersona
 from room_sim.models import ReconstructionJob
 from room_sim.pipeline.runner import submit_pipeline_job
 
@@ -155,3 +162,78 @@ class PanoramaUploadView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PropertyInterestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, property_id):
+        """Toggle current user's interest in a property."""
+        prop = get_object_or_404(Property, pk=property_id)
+        obj, created = PropertyInterest.objects.get_or_create(user=request.user, property=prop)
+        if not created:
+            obj.delete()
+            return Response({"interested": False})
+        return Response({"interested": True}, status=status.HTTP_201_CREATED)
+
+    def get(self, request, property_id):
+        """List users interested in a property (id, display_name, has_persona)."""
+        prop = get_object_or_404(Property, pk=property_id)
+        interests = PropertyInterest.objects.filter(property=prop).select_related("user")
+        data = []
+        for i in interests:
+            u = i.user
+            data.append({
+                "id": u.id,
+                "email": u.email,
+                "display_name": u.get_full_name() or u.username or u.email.split("@")[0],
+                "has_persona": UserPersona.objects.filter(user=u).exists(),
+                "is_me": u == request.user,
+            })
+        # Also report whether current user is interested
+        me_interested = PropertyInterest.objects.filter(property=prop, user=request.user).exists()
+        return Response({"interested_users": data, "i_am_interested": me_interested})
+
+
+class OverpassProxyView(APIView):
+    """
+    Server-side proxy for the Overpass API.
+    Avoids CORS issues when the frontend is served from a non-standard origin
+    (e.g. VS Code / GitHub dev tunnels).
+    POST body: { "query": "<overpass QL string>" }
+    """
+    permission_classes = []  # Public — Overpass data is public anyway
+
+    ENDPOINTS = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        query = request.data.get("query", "")
+        if not query:
+            return Response({"error": "Missing 'query' field."}, status=status.HTTP_400_BAD_REQUEST)
+
+        cache_key = "overpass_" + hashlib.md5(query.encode("utf-8")).hexdigest()
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+
+        body = ("data=" + urllib.parse.quote(query)).encode("utf-8")
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "HestIA/1.0 (real-estate app; contact@hestia.tn)",
+            "Accept": "application/json",
+        }
+
+        for endpoint in self.ENDPOINTS:
+            try:
+                req = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    data = json_module.loads(resp.read().decode("utf-8"))
+                    cache.set(cache_key, data, timeout=300)  # cache for 5 minutes
+                    return Response(data)
+            except Exception:
+                continue  # Try next mirror
+
+        return Response({"error": "All Overpass mirrors failed."}, status=status.HTTP_502_BAD_GATEWAY)

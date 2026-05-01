@@ -21,6 +21,16 @@ class ReconstructionJob(models.Model):
     state         = models.CharField(max_length=16, choices=State.choices, default=State.QUEUED)
     current_step  = models.CharField(max_length=64, default="queued")
 
+    # Link to Property — one property has at most one active 3D world.
+    # All users viewing this pin see the same completed job's artifacts.
+    property = models.ForeignKey(
+        "core.Property",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reconstruction_jobs",
+    )
+
     # Pipeline options (stored so /status can echo them back)
     align_panorama  = models.BooleanField(default=True)
     force_cuboid    = models.BooleanField(default=False)

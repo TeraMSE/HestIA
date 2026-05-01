@@ -11,9 +11,20 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
+
+# Load .env into the process environment before any os.getenv() calls.
+# This is required because social_sim modules (ORS, Overpass, Nominatim, etc.)
+# read configuration via os.getenv() at class instantiation time.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
+except ImportError:
+    pass  # python-dotenv not installed; rely on environment variables set externally
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 
 
 # Quick-start development settings - unsuitable for production
@@ -45,7 +56,13 @@ INSTALLED_APPS = [
     "users",
     "core",
     "room_sim",
+    "social_sim",
 ]
+
+# Ollama social simulation config
+import os
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -160,7 +177,7 @@ REST_FRAMEWORK = {
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),   # extended: polling can take several mins
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": False,
@@ -182,11 +199,7 @@ DJOSER = {
 }
 
 # CORS configuration
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-]
-
+# CORS_ALLOW_ALL_ORIGINS=True allows any origin — suitable for local dev & dev tunnels.
+# In production, replace with an explicit CORS_ALLOWED_ORIGINS list.
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True

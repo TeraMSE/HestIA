@@ -69,10 +69,10 @@ export default function Login() {
         <p className="text-center text-gray-600 mt-6">
           Don't have an account?{" "}
           <button
-            onClick={() => navigate("/signup")}
+            onClick={() => navigate("/")}
             className="text-indigo-600 hover:underline font-medium"
           >
-            Sign up
+            Create account
           </button>
         </p>
       </div>

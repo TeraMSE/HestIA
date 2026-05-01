@@ -16,6 +16,7 @@ import {
 } from "./StateSystem";
 import type { RoomEnvironment } from "./RoomEnvironment";
 import type { FurnitureManager, FurniturePiece } from "./FurnitureManager";
+import { getActionMapping } from "./ActionMap";
 
 const randR = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
 
@@ -27,6 +28,7 @@ export class AgentManager {
   furnitureMgr: FurnitureManager | null = null;
   agents: Agent[] = [];
   selected: Agent | null = null;
+  private _autonomyEnabled = true;
 
   private _labelsRoot: HTMLDivElement | null = null;
   private _clock = new THREE.Clock();
@@ -302,6 +304,16 @@ export class AgentManager {
   }
 
   // ── AUTONOMY WITH FURNITURE ─────────────────────────────────────
+  /** Toggle random wander autonomy. Set false when LifeSimDriver is active. */
+  setAutonomyEnabled(enabled: boolean) {
+    this._autonomyEnabled = enabled;
+  }
+
+  /** Find agent by persona subject_id (stored in agent.label after LS binding). */
+  agentByPersonaId(_id: string): Agent | undefined {
+    return this.agents.find((a) => a.label.includes(_id));
+  }
+
   private _autoTick(agent: Agent, now: number) {
     if (agent.busy || agent.isMoving) return;
     if (now - agent._lastAct < agent._nextIn) return;
@@ -371,6 +383,20 @@ export class AgentManager {
     } else {
       agent.currentAction = "idle";
     }
+  }
+
+  // ── ANIMATION STATE RESOLVER ─────────────────────────────────────────────
+  private _resolveAnimState(agent: Agent): string {
+    if (agent.isMoving) return "walk";
+    // LS-driven mode: use the action_id from the current LS frame
+    if (agent.lsActionId) {
+      const mapping = getActionMapping(agent.lsActionId);
+      return mapping.animState;
+    }
+    // Wander-mode fallback
+    if (agent.isSleeping || agent.currentAction === "resting") return "sleep";
+    if (agent.isSitting) return "sit";
+    return "idle";
   }
 
   // ── UPDATE ──────────────────────────────────────────────────────
@@ -444,10 +470,26 @@ export class AgentManager {
         }
       }
 
-      // 3D position
+      // 3D position — with optional proximity pull toward shared-room partner
+      let displayX = agent.x;
+      let displayZ = agent.z;
+      if (agent.sharedRoomPartner && !agent.isMoving) {
+        const partner = agent.sharedRoomPartner;
+        const pdx = partner.x - agent.x;
+        const pdz = partner.z - agent.z;
+        const pd = Math.hypot(pdx, pdz);
+        if (pd > 0.8) {
+          const f = (pd - 0.8) / pd * 0.5; // pull halfway to within 0.8 units
+          displayX = agent.x + pdx * f;
+          displayZ = agent.z + pdz * f;
+        }
+      }
+
       if (agent.group) {
-        agent.group.position.x = agent.x;
-        agent.group.position.z = agent.z;
+        agent.group.position.x = displayX;
+        agent.group.position.z = displayZ;
+        // Apply furniture snap offset (bed/chair pose)
+        agent.group.position.y = agent.poseOffset?.dy ?? 0;
 
         // Smooth rotation
         if (agent._speed > 0) {
@@ -456,22 +498,17 @@ export class AgentManager {
           while (diff < -Math.PI) diff += Math.PI * 2;
           agent._rotY += diff * Math.min(1, dt * 10);
         }
+        // Snap yaw when posed (bed/chair)
+        if (agent.poseOffset?.yaw !== undefined && !agent.isMoving) {
+          agent._rotY = agent.poseOffset.yaw;
+        }
         agent.group.rotation.y = agent._rotY;
       }
 
-      // Animation state
+      // Animation state — driven by LS action_id when available, otherwise by flags
       if (agent.animEngine) {
-        if (agent.isMoving) {
-          agent.animEngine.setState("walk");
-        } else if (agent.isSleeping) {
-          agent.animEngine.setState("sleep");
-        } else if (agent.isSitting) {
-          agent.animEngine.setState("sit");
-        } else if (agent.currentAction === "resting") {
-          agent.animEngine.setState("sleep");
-        } else {
-          agent.animEngine.setState("idle");
-        }
+        const animState = this._resolveAnimState(agent);
+        agent.animEngine.setState(animState);
         agent.animEngine.update(dt);
       }
 
@@ -500,9 +537,12 @@ export class AgentManager {
         }
       }
 
-      this._autoTick(agent, now);
+      if (this._autonomyEnabled) this._autoTick(agent, now);
     }
   }
+
+  // ── UPDATE calls _autoTick conditionally ──────────────────────────────
+  // (original update() already calls _autoTick at the bottom of the loop)
 
   dispose() {
     for (const agent of this.agents) {

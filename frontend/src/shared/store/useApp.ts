@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { User, PersonaProfile, ApartmentConfig, CompatibilityResult, FrameSequence, PropertyPin } from "@/contracts/types";
+import type { FriendEntry } from "@/services/socialApi";
 
 export type OverlayId =
   | null
@@ -11,12 +12,21 @@ export type OverlayId =
   | "reports"
   | "material-agent"
   | "admin-assistant"
-  | "room-sim";
+  | "room-sim"
+  | "neighborhood-intel";
 
 interface AppState {
   // Auth
   user: User | null;
   setUser: (u: User | null) => void;
+
+  // Social — friends list (lazy loaded)
+  friends: FriendEntry[];
+  setFriends: (f: FriendEntry[]) => void;
+
+  // The currently selected map pin (used to bind property_id to life-sim)
+  selectedPin: PropertyPin | null;
+  setSelectedPin: (p: PropertyPin | null) => void;
 
   // Onboarding draft
   onboardingPersona: Partial<PersonaProfile["bigFive"] & PersonaProfile["lifestyle"]>;
@@ -67,6 +77,12 @@ interface AppState {
 export const useApp = create<AppState>((set) => ({
   user: null,
   setUser: (user) => set({ user }),
+
+  friends: [],
+  setFriends: (friends) => set({ friends }),
+
+  selectedPin: null,
+  setSelectedPin: (selectedPin) => set({ selectedPin }),
 
   onboardingPersona: {},
   setOnboardingPersona: (p) => set((s) => ({ onboardingPersona: { ...s.onboardingPersona, ...p } })),

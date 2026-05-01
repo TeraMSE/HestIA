@@ -116,7 +116,8 @@ let _n = 0;
 export type AgentGender = "male" | "female";
 
 export interface FurnitureTarget {
-  type: "bed" | "chair" | "table" | "tv";
+  type: "bed" | "chair" | "table" | "tv" | "stove" | "desk" | "door" | "bathroom"
+      | "fridge" | "sink" | "sofa" | "toilet" | "shower" | "wardrobe" | "lamp";
   x: number;
   z: number;
 }
@@ -151,6 +152,17 @@ export class Agent {
   furnitureTarget: FurnitureTarget | null = null;
   isSleeping: boolean = false;
   isSitting: boolean = false;
+
+  // Life-Sim driver fields (set by LifeSimDriver; undefined in random-wander mode)
+  currentEmoji?: string;
+  speechBubble?: string;
+  narration?: string;
+  lsMood?: "happy" | "neutral" | "frustrated" | "upset";
+  outsideRoom?: boolean;
+  lsActionId?: string;       // current LS action_id for animation routing
+  poseOffset?: { dy: number; yaw: number }; // furniture snap offset (bed/chair)
+  sharedRoomPartner?: Agent | null;         // set when sharing a room with another agent
+  interestBadge?: string;                   // e.g. "5 interested" shown on label
 
   constructor(x: number, z: number, gender: AgentGender) {
     _n++;

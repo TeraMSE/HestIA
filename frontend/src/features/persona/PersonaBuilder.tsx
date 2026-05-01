@@ -10,8 +10,11 @@ import { Card } from "@/components/ui/card";
 import { Send, Trash2, Save } from "lucide-react";
 import { personaService } from "@/services/mockApi";
 import { useApp } from "@/shared/store/useApp";
+import { useAuthStore } from "@/shared/store/useAuthStore";
 import { toast } from "sonner";
 import type { PersonaProfile } from "@/contracts/types";
+import { socialApi } from "@/services/socialApi";
+import { toLifeSimPersona } from "./toLifeSimPersona";
 
 const interviewQuestions = [
   "Hi! What's your name?",
@@ -35,6 +38,7 @@ function emptyPersona(slot: "A" | "B"): Omit<PersonaProfile, "id" | "updatedAt">
 
 export function PersonaBuilder() {
   const { personas, setPersonas } = useApp();
+  const { user } = useAuthStore();
   const [tab, setTab] = useState<"A" | "B">("A");
   const [drafts, setDrafts] = useState<Record<"A" | "B", Omit<PersonaProfile, "id" | "updatedAt"> & { id?: string }>>({
     A: emptyPersona("A"),
@@ -43,6 +47,34 @@ export function PersonaBuilder() {
   const [chat, setChat] = useState<{ role: "assistant" | "user"; text: string }[]>([{ role: "assistant", text: interviewQuestions[0] }]);
   const [chatInput, setChatInput] = useState("");
   const [qIdx, setQIdx] = useState(0);
+
+  // Pre-fill Persona A sliders from user profile if no saved persona exists
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await socialApi.getMyPersona();
+        if (saved || !user) return;
+        const hasPref = user.noise_tolerance != null || user.cleanliness != null || user.thermal_sensitivity != null;
+        if (!hasPref) return;
+        setDrafts(d => ({
+          ...d,
+          A: {
+            ...d.A,
+            name: user.first_name ? `${user.first_name}'s Persona` : d.A.name,
+            lifestyle: {
+              noiseTolerance: user.noise_tolerance ?? d.A.lifestyle.noiseTolerance,
+              cleanliness: user.cleanliness ?? d.A.lifestyle.cleanliness,
+              thermalSensitivity: user.thermal_sensitivity ?? d.A.lifestyle.thermalSensitivity,
+              smoker: user.smoker ?? d.A.lifestyle.smoker,
+              schedule: (user.daily_schedule || d.A.lifestyle.schedule) as PersonaProfile["lifestyle"]["schedule"],
+            },
+          },
+        }));
+      } catch {
+        // Non-fatal
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cur = drafts[tab];
   const updateDraft = (patch: Partial<typeof cur>) => setDrafts((d) => ({ ...d, [tab]: { ...d[tab], ...patch } }));
@@ -65,6 +97,14 @@ export function PersonaBuilder() {
     const saved = await personaService.save(cur);
     setPersonas(await personaService.list());
     updateDraft({ id: saved.id });
+    // Auto-sync Persona A as the current user's canonical persona on the backend
+    if (tab === "A") {
+      try {
+        await socialApi.saveMyPersona(toLifeSimPersona(saved));
+      } catch {
+        // Non-fatal: user may not be logged in or backend not running
+      }
+    }
     toast.success(`Saved ${saved.name}`);
   };
 

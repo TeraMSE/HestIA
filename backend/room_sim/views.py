@@ -44,6 +44,16 @@ def job_start(request: HttpRequest) -> JsonResponse:
         mesh_stride = int(request.POST.get("mesh_stride", "2"))
         ignore_ceiling = request.POST.get("ignore_ceiling", "true").lower() == "true"
         checkpoint = request.POST.get("checkpoint", "")
+        property_id = request.POST.get("property_id", "")
+
+        # Resolve property FK
+        from core.models import Property as PropertyModel
+        property_obj = None
+        if property_id:
+            try:
+                property_obj = PropertyModel.objects.get(id=property_id)
+            except PropertyModel.DoesNotExist:
+                pass
 
         job = ReconstructionJob.objects.create(
             state="queued",
@@ -53,6 +63,7 @@ def job_start(request: HttpRequest) -> JsonResponse:
             mesh_stride=mesh_stride,
             ignore_ceiling=ignore_ceiling,
             checkpoint_path=checkpoint,
+            property=property_obj,
         )
 
         job_dir = job.job_dir()
@@ -91,6 +102,43 @@ def job_start(request: HttpRequest) -> JsonResponse:
 
 
 @require_GET
+def property_job_status(request: HttpRequest, property_id: int) -> JsonResponse:
+    """
+    GET /api/jobs/property/<property_id>/ — Returns the latest completed
+    ReconstructionJob for a given property, or 404 if none exists.
+    This allows any user to load the shared 3D world for a property.
+    """
+    job = (
+        ReconstructionJob.objects
+        .filter(property_id=property_id, state="completed")
+        .order_by("-finished_at")
+        .first()
+    )
+    if not job:
+        return JsonResponse({"error": "No completed 3D world for this property"}, status=404)
+
+    from core.models import Property as PropertyModel
+    try:
+        prop = PropertyModel.objects.get(id=property_id)
+        owner_id = prop.owner_id
+    except PropertyModel.DoesNotExist:
+        owner_id = None
+
+    return JsonResponse({
+        "job_id": str(job.id),
+        "state": job.state,
+        "owner_id": owner_id,
+        "artifacts": {
+            "mesh_url": f"/api/jobs/{job.id}/artifact/mesh/",
+            "layout_url": f"/api/jobs/{job.id}/artifact/layout/",
+            "panorama_url": f"/api/jobs/{job.id}/artifact/panorama/",
+            "floor_polygon_url": f"/api/jobs/{job.id}/floor_polygon/",
+            "detections_url": f"/api/jobs/{job.id}/artifact/detections/",
+        },
+    })
+
+
+@require_GET
 def job_status(request: HttpRequest, job_id: str) -> JsonResponse:
     """GET /api/jobs/<uuid>/status/ - Job status and logs."""
     try:
@@ -126,6 +174,7 @@ def job_status(request: HttpRequest, job_id: str) -> JsonResponse:
                 "layout_url": f"/api/jobs/{job.id}/artifact/layout/",
                 "panorama_url": f"/api/jobs/{job.id}/artifact/panorama/",
                 "floor_polygon_url": f"/api/jobs/{job.id}/floor_polygon/",
+                "detections_url": f"/api/jobs/{job.id}/artifact/detections/",
             }
 
         if job.state == "failed":
@@ -255,3 +304,26 @@ def floor_polygon(request: HttpRequest, job_id: str) -> JsonResponse:
         return JsonResponse({"error": "Job not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+@require_GET
+def artifact_detections(request: HttpRequest, job_id: str) -> FileResponse:
+    """GET /api/jobs/<uuid>/artifact/detections/ - Download detections JSON."""
+    try:
+        job = get_object_or_404(ReconstructionJob, pk=job_id)
+
+        if job.state != "completed":
+            return JsonResponse({"error": "Job not completed"}, status=409)
+
+        detections_path = job.job_dir() / "detections.json"
+        if not detections_path.is_file():
+            return JsonResponse({"error": "Detections not found"}, status=404)
+
+        return FileResponse(
+            detections_path.open("rb"),
+            content_type="application/json",
+            as_attachment=False,
+        )
+
+    except ReconstructionJob.DoesNotExist:
+        return JsonResponse({"error": "Job not found"}, status=404)

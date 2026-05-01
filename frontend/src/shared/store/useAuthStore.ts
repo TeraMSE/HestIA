@@ -11,6 +11,13 @@ export interface User {
   role: UserRole;
   verified_email: boolean;
   created_at: string;
+  // Living preference fields (optional — set from Settings page)
+  bio?: string;
+  noise_tolerance?: number | null;
+  cleanliness?: number | null;
+  thermal_sensitivity?: number | null;
+  smoker?: boolean | null;
+  daily_schedule?: "early_bird" | "flexible" | "night_owl" | "";
 }
 
 interface AuthStore {
@@ -46,7 +53,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       const response = await api.post("/auth/users/", {
         email,
         password,
-        password2: password,
+        re_password: password,   // Djoser expects re_password, not password2
         first_name: firstName,
         last_name: lastName,
         role,
@@ -56,7 +63,17 @@ export const useAuthStore = create<AuthStore>((set) => ({
       localStorage.setItem("user", JSON.stringify(userData));
       set({ user: userData, isLoading: false });
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || error.message || "Signup failed";
+      // Djoser returns field-level errors as { field: ["msg"] } — flatten them
+      const data = error.response?.data;
+      let errorMsg = "Signup failed";
+      if (data) {
+        if (typeof data === "object") {
+          const msgs = Object.values(data).flat();
+          errorMsg = (msgs[0] as string) || errorMsg;
+        } else if (typeof data === "string") {
+          errorMsg = data;
+        }
+      }
       set({ error: errorMsg, isLoading: false });
       throw error;
     }

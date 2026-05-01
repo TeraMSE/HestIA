@@ -1,35 +1,32 @@
 from rest_framework import serializers
+from djoser.serializers import UserCreateSerializer as DjoserUserCreateSerializer
 from .models import CustomUser
 
 
 class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ("id", "email", "first_name", "last_name", "role", "verified_email", "created_at")
+        fields = (
+            "id", "email", "first_name", "last_name", "role", "verified_email", "created_at",
+            # Living preferences (optional — settable via PATCH /auth/users/me/)
+            "bio", "noise_tolerance", "cleanliness", "thermal_sensitivity", "smoker", "daily_schedule",
+        )
         read_only_fields = ("id", "created_at", "verified_email")
 
 
-class CustomUserCreateSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True, style={"input_type": "password"})
-    password2 = serializers.CharField(write_only=True, required=True, style={"input_type": "password"}, label="Confirm password")
+class CustomUserCreateSerializer(DjoserUserCreateSerializer):
+    """
+    Extends Djoser's base UserCreateSerializer so the Djoser view layer
+    correctly picks it up.  Adds the `role` field and auto-sets username=email.
+    """
     role = serializers.ChoiceField(choices=CustomUser.ROLE_CHOICES, required=True)
 
-    class Meta:
+    class Meta(DjoserUserCreateSerializer.Meta):
         model = CustomUser
-        fields = ("email", "first_name", "last_name", "password", "password2", "role")
+        # re_password is provided by DjoserUserCreateSerializer already
+        fields = ("email", "first_name", "last_name", "re_password", "password", "role")
 
-    def validate(self, data):
-        if data["password"] != data.pop("password2"):
-            raise serializers.ValidationError({"password": "Passwords do not match."})
-        return data
-
-    def create(self, validated_data):
-        user = CustomUser.objects.create_user(
-            username=validated_data["email"],
-            email=validated_data["email"],
-            password=validated_data["password"],
-            first_name=validated_data.get("first_name", ""),
-            last_name=validated_data.get("last_name", ""),
-            role=validated_data["role"],
-        )
-        return user
+    def perform_create(self, validated_data):
+        """Djoser calls this with **validated_data; inject username=email."""
+        validated_data["username"] = validated_data["email"]
+        return CustomUser.objects.create_user(**validated_data)

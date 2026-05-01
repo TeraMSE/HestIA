@@ -1,4 +1,4 @@
-"""HorizonNet pipeline runner - executes in background thread."""
+﻿"""HorizonNet pipeline runner - executes in background thread."""
 import json
 import logging
 import sys
@@ -9,11 +9,37 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 # Module-level semaphore to serialize jobs (single GPU)
 _PIPELINE_SEM = threading.Semaphore(1)
+
+# ── Cached ZeroShotERPPipeline ────────────────────────────────────────────────
+# The YOLO model + ERP→Cubemap mappings are expensive to initialize (~15-20 s).
+# We keep a single singleton across jobs so that only the first job pays the
+# load cost; subsequent jobs skip straight to inference.
+_CV_PIPELINE_CACHE: dict = {}   # keys: (yolo_ckpt_str, tuple(classes))
+_CV_PIPELINE_LOCK = threading.Lock()
+
+
+def _get_cv_pipeline(yolo_ckpt: str, classes: list, fallback_model: str | None = None):
+    """Return the cached ZeroShotERPPipeline, initializing it if necessary."""
+    from .cv.pipeline import ZeroShotERPPipeline
+    key = (yolo_ckpt, tuple(classes))
+    with _CV_PIPELINE_LOCK:
+        if key not in _CV_PIPELINE_CACHE:
+            logger.info("[CV] Initializing ZeroShotERPPipeline (first call, cold start)…")
+            _CV_PIPELINE_CACHE[key] = ZeroShotERPPipeline(
+                model_name=yolo_ckpt,
+                classes=classes,
+                fallback_model=fallback_model,
+            )
+            logger.info("[CV] ZeroShotERPPipeline ready and cached.")
+        else:
+            logger.info("[CV] Reusing cached ZeroShotERPPipeline (warm).")
+        return _CV_PIPELINE_CACHE[key]
 
 
 class PipelineRunner:
@@ -98,6 +124,59 @@ class PipelineRunner:
                 job_dir / "mesh" / "layout_mesh.ply",
                 job.mesh_stride, job.ignore_ceiling, log
             )
+
+            # -- Step 4: Zero-Shot Object Detection (backend-aware) -------
+            set_step("object_detection")
+            log("Running Zero-Shot object detection...")
+            try:
+                FURNITURE_CLASSES = [
+                    "bed", "wardrobe", "closet", "chair", "desk", "nightstand",
+                    "table", "television", "monitor", "lamp", "ceiling light",
+                    "window", "door", "rug", "mirror", "curtain",
+                    "air conditioner", "painting", "sofa", "refrigerator",
+                    "bookshelf", "cabinet", "couch", "armchair",
+                ]
+
+                # Read the effective backend (decouple picks up .env correctly)
+                try:
+                    from decouple import config as _dc
+                    _det_backend = _dc("DETECTOR_BACKEND", default="yoloworld").strip().lower()
+                except Exception:
+                    import os as _os
+                    _det_backend = _os.environ.get("DETECTOR_BACKEND", "yoloworld").strip().lower()
+
+                log(f"Object detection backend: {_det_backend}")
+
+                if _det_backend == "gdino":
+                    # Grounding DINO: weights auto-download, no checkpoint file needed.
+                    # Resolve the YOLO fallback in case GDINO init fails.
+                    _yolo_fb = settings.BASE_DIR / "checkpoints" / "yolov8x-worldv2.pt"
+                    if not _yolo_fb.exists():
+                        _yolo_fb = settings.BASE_DIR / "checkpoints" / "yolov8s-world.pt"
+                    _yolo_fb_str = str(_yolo_fb) if _yolo_fb.exists() else "yolov8x-worldv2.pt"
+                    cv_pipeline = _get_cv_pipeline("gdino", FURNITURE_CLASSES, fallback_model=_yolo_fb_str)
+                else:
+                    # YOLO-World: resolve the checkpoint
+                    yolo_ckpt = settings.BASE_DIR / "checkpoints" / "yolov8x-worldv2.pt"
+                    if not yolo_ckpt.exists():
+                        yolo_ckpt = settings.BASE_DIR / "checkpoints" / "yolov8s-world.pt"
+                    if not yolo_ckpt.exists():
+                        log("WARNING: YOLO-World checkpoint not found. Skipping detection.")
+                        yolo_ckpt = None
+                    cv_pipeline = _get_cv_pipeline(str(yolo_ckpt), FURNITURE_CLASSES) if yolo_ckpt else None
+
+                if cv_pipeline is not None:
+                    detections = cv_pipeline.run(
+                        str(source_for_inference),
+                        conf_threshold=0.2,
+                    )
+                    detections_path = job_dir / "detections.json"
+                    with open(detections_path, "w") as f:
+                        json.dump(detections, f, indent=4)
+                    log(f"Saved {len(detections['detections'])} detections to detections.json")
+            except Exception as e:
+                log(f"WARNING: Object detection failed: {e}")
+                # We do not fail the whole job if object detection fails.
 
             # ── Done ─────────────────────────────────────────────────────
             ReconstructionJob.objects.filter(pk=self.job_id).update(
@@ -199,3 +278,6 @@ def submit_pipeline_job(job_id: str, checkpoint_path: Path) -> threading.Thread:
     t = threading.Thread(target=run_with_sem, name=f"pipeline-{job_id}", daemon=True)
     t.start()
     return t
+
+
+

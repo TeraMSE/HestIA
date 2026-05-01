@@ -24,8 +24,10 @@ export default function Signup() {
       await signup(email, password, firstName, lastName, role);
       toast.success("Account created successfully!");
       navigate("/map");
-    } catch {
-      toast.error("Signup failed. Please try again.");
+    } catch (err: any) {
+      // useAuthStore already extracts the first Djoser error message
+      const { error } = useAuthStore.getState();
+      toast.error(error || "Signup failed. Please try again.");
     } finally {
       setIsLoading(false);
     }

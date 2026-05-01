@@ -59,7 +59,9 @@ def save_model(net, path, args):
 
 
 def load_trained_model(Net, path):
-    state_dict = torch.load(path, map_location='cpu')
+    from room_sim.pipeline.gpu_utils import get_device
+    device = get_device()
+    state_dict = torch.load(path, map_location=device, weights_only=False)
     net = Net(**state_dict['kwargs'])
     net.load_state_dict(state_dict['state_dict'])
     return net

@@ -3,11 +3,22 @@
 export type UserRole = "renter" | "buyer" | "landlord";
 
 export interface User {
-  id: string;
+  id: number;
   email: string;
-  displayName: string;
+  first_name?: string;
+  last_name?: string;
+  displayName?: string;
   role: UserRole;
   avatarColor?: string;
+  verified_email?: boolean;
+  created_at?: string;
+  bio?: string;
+  // Living preferences — set from Settings; power the Life Sim persona
+  noise_tolerance?: number | null;
+  cleanliness?: number | null;
+  thermal_sensitivity?: number | null;
+  smoker?: boolean | null;
+  daily_schedule?: "early_bird" | "flexible" | "night_owl" | "";
 }
 
 // === Persona ===
@@ -79,6 +90,10 @@ export interface ApartmentConfig {
   noiseScore?: number;        // 0..100
   neighborhoodScore?: number; // 0..100
   thermalScore?: number;      // 0..100
+  // Cached full assessment payloads (from real LS API)
+  noiseAssessment?: import("@/services/assessmentApi").NoiseAssessmentResult;
+  neighborhoodProfile?: import("@/services/assessmentApi").NeighborhoodProfile;
+  thermalAssessment?: import("@/services/assessmentApi").ThermalAssessmentResult;
   updatedAt: string;
 }
 
@@ -225,12 +240,15 @@ export interface PropertyPin {
   lng: number;
   title: string;
   subtitle?: string;
+  /** User ID of the property owner. Only that user can upload panoramas. */
   ownerId?: string;
   scan: ScanStatus;
   apartmentId?: string;
   priceTND?: number;
   forSale?: boolean;
   forRent?: boolean;
+  /** True when a completed 3D reconstruction exists for this property. */
+  has_3d?: boolean;
 }
 
 // === Admin assistant ===

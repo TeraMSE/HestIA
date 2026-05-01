@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useApp } from "@/shared/store/useApp";
 import { apartmentService } from "@/services/mockApi";
+import { assessmentApi } from "@/services/assessmentApi";
 import { toast } from "sonner";
+import { Loader2, Volume2, MapPin, Thermometer, ChevronRight } from "lucide-react";
 import type { ApartmentConfig, Orientation } from "@/contracts/types";
 
 const blank = (): Omit<ApartmentConfig, "id" | "updatedAt"> => ({
@@ -19,6 +21,22 @@ const blank = (): Omit<ApartmentConfig, "id" | "updatedAt"> => ({
   utilities: { internet: true, water: true, electricity: true, gas: false },
 });
 
+function ScorePill({ label, score, icon: Icon, loading }: { label: string; score?: number; icon: React.ElementType; loading?: boolean }) {
+  return (
+    <Card className="rounded-2xl p-2 text-center bg-secondary/40 relative overflow-hidden">
+      <Icon className="h-3 w-3 mx-auto text-muted-foreground mb-1" />
+      <div className="text-xs text-muted-foreground">{label}</div>
+      {loading ? (
+        <Loader2 className="h-5 w-5 mx-auto animate-spin text-primary mt-1" />
+      ) : (
+        <div className={`font-display text-xl ${score != null ? (score >= 70 ? "text-emerald-400" : score >= 45 ? "text-yellow-400" : "text-red-400") : ""}`}>
+          {score ?? "—"}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function ApartmentConfigurator() {
   const { apartments, setApartments, pins, selectedPinId } = useApp();
   const pin = pins.find((p) => p.id === selectedPinId);
@@ -27,6 +45,10 @@ export function ApartmentConfigurator() {
     if (pin) { base.label = pin.title; base.address = pin.subtitle ?? ""; base.lat = pin.lat; base.lng = pin.lng; }
     return base;
   });
+
+  const [checkingNoise, setCheckingNoise] = useState(false);
+  const [checkingNeighborhood, setCheckingNeighborhood] = useState(false);
+  const [checkingThermal, setCheckingThermal] = useState(false);
 
   const upd = (patch: Partial<typeof draft>) => setDraft((d) => ({ ...d, ...patch }));
   const updRooms = (k: keyof ApartmentConfig["rooms"], v: number) => upd({ rooms: { ...draft.rooms, [k]: Math.max(0, v) } });
@@ -40,13 +62,74 @@ export function ApartmentConfigurator() {
     toast.success("Apartment saved");
   };
 
-  const runChecks = async () => {
-    if (!draft.id) { toast.error("Save first"); return; }
-    const a = await apartmentService.runChecks(draft.id);
-    setApartments(await apartmentService.list());
-    upd(a);
-    toast.success("Checks complete");
+  const orientMap: Record<string, string> = { N: "north", S: "south", E: "east", W: "west", NE: "east", NW: "north", SE: "east", SW: "south" };
+  const condMap: Record<string, string> = { new: "new", renovated: "good", old: "fair" };
+
+  const runNoise = async () => {
+    setCheckingNoise(true);
+    try {
+      const result = await assessmentApi.noiseAssess({ lat: draft.lat, lon: draft.lng, radius_m: 500 });
+      upd({
+        noiseScore: Math.round(result.noise_score),
+        noiseAssessment: result,
+      });
+      toast.success(`Noise: ${result.noise_category.replace(/_/g, " ")} (${Math.round(result.noise_score)}/100)`);
+    } catch (err: any) {
+      toast.error(`Noise check failed: ${err.message}`);
+    } finally {
+      setCheckingNoise(false);
+    }
   };
+
+  const runNeighborhood = async () => {
+    setCheckingNeighborhood(true);
+    try {
+      const result = await assessmentApi.neighborhoodProfile({ lat: draft.lat, lon: draft.lng, radius_m: 1000 });
+      upd({
+        neighborhoodScore: Math.round(result.overall_neighborhood_score),
+        neighborhoodProfile: result,
+      });
+      toast.success(`Walkability: ${Math.round(result.overall_neighborhood_score)}/100`);
+    } catch (err: any) {
+      toast.error(`Neighborhood check failed: ${err.message}`);
+    } finally {
+      setCheckingNeighborhood(false);
+    }
+  };
+
+  const runThermal = async () => {
+    setCheckingThermal(true);
+    try {
+      const result = await assessmentApi.thermalAssess({
+        lat: draft.lat,
+        lon: draft.lng,
+        floor_number: draft.building.floor,
+        orientation: (orientMap[draft.building.orientation] ?? "unknown") as any,
+        building_mass: draft.building.mass as any,
+        building_condition: (condMap[draft.building.condition] ?? "good") as any,
+        has_cooling: draft.building.cooling,
+        has_heating: draft.building.heating,
+        has_balcony: draft.rooms.balconies > 0,
+        has_windows: true,
+        address: draft.address || draft.label,
+      });
+      upd({
+        thermalScore: Math.round(result.comfort_report.comfort_score),
+        thermalAssessment: result,
+      });
+      toast.success(`Thermal comfort: ${Math.round(result.comfort_report.comfort_score)}/100 · ${result.comfort_report.months_in_comfort_band}/12 comfortable months`);
+    } catch (err: any) {
+      toast.error(`Thermal check failed: ${err.message}`);
+    } finally {
+      setCheckingThermal(false);
+    }
+  };
+
+  const runAllChecks = async () => {
+    await Promise.allSettled([runNoise(), runNeighborhood(), runThermal()]);
+  };
+
+  const anyChecking = checkingNoise || checkingNeighborhood || checkingThermal;
 
   return (
     <OverlayPanel title="Apartment Configurator" subtitle={pin ? `Pre-filled from "${pin.title}"` : "Build a saveable apartment preset"} size="xl">
@@ -104,19 +187,67 @@ export function ApartmentConfigurator() {
         </Card>
 
         <Card className="rounded-3xl p-4 space-y-3">
-          <h3 className="font-display text-lg">Utilities & assessment</h3>
+          <h3 className="font-display text-lg">Utilities & environment</h3>
           {(Object.keys(draft.utilities) as Array<keyof ApartmentConfig["utilities"]>).map((k) => (
             <div key={k} className="flex items-center justify-between rounded-2xl bg-muted px-3 py-2">
               <Label className="capitalize">{k}</Label>
               <Switch checked={draft.utilities[k]} onCheckedChange={(v) => updUtil(k, v)} />
             </div>
           ))}
+
+          {/* Score display */}
           <div className="grid grid-cols-3 gap-2 pt-2">
-            <Card className="rounded-2xl p-2 text-center bg-secondary/40"><div className="text-xs text-muted-foreground">Noise</div><div className="font-display text-xl">{draft.noiseScore ?? "—"}</div></Card>
-            <Card className="rounded-2xl p-2 text-center bg-secondary/40"><div className="text-xs text-muted-foreground">Neighborhood</div><div className="font-display text-xl">{draft.neighborhoodScore ?? "—"}</div></Card>
-            <Card className="rounded-2xl p-2 text-center bg-secondary/40"><div className="text-xs text-muted-foreground">Thermal</div><div className="font-display text-xl">{draft.thermalScore ?? "—"}</div></Card>
+            <ScorePill label="Noise" score={draft.noiseScore} icon={Volume2} loading={checkingNoise} />
+            <ScorePill label="Walkability" score={draft.neighborhoodScore} icon={MapPin} loading={checkingNeighborhood} />
+            <ScorePill label="Thermal" score={draft.thermalScore} icon={Thermometer} loading={checkingThermal} />
           </div>
-          <Button variant="outline" className="rounded-2xl w-full" onClick={runChecks}>Run noise / neighborhood / thermal checks</Button>
+
+          {/* Individual check buttons */}
+          <div className="grid grid-cols-3 gap-2">
+            <Button
+              size="sm" variant="outline" className="rounded-2xl text-xs"
+              onClick={runNoise} disabled={checkingNoise}
+            >
+              {checkingNoise ? <Loader2 className="h-3 w-3 animate-spin" /> : <Volume2 className="h-3 w-3" />}
+              <span className="ml-1">Noise</span>
+            </Button>
+            <Button
+              size="sm" variant="outline" className="rounded-2xl text-xs"
+              onClick={runNeighborhood} disabled={checkingNeighborhood}
+            >
+              {checkingNeighborhood ? <Loader2 className="h-3 w-3 animate-spin" /> : <MapPin className="h-3 w-3" />}
+              <span className="ml-1">Area</span>
+            </Button>
+            <Button
+              size="sm" variant="outline" className="rounded-2xl text-xs"
+              onClick={runThermal} disabled={checkingThermal}
+            >
+              {checkingThermal ? <Loader2 className="h-3 w-3 animate-spin" /> : <Thermometer className="h-3 w-3" />}
+              <span className="ml-1">Thermal</span>
+            </Button>
+          </div>
+
+          <Button
+            variant="default" className="rounded-2xl w-full"
+            onClick={runAllChecks} disabled={anyChecking}
+          >
+            {anyChecking
+              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Running checks…</>
+              : "🔍 Run all environment checks"}
+          </Button>
+
+          {/* Inline summaries from cached assessments */}
+          {(draft as any).noiseAssessment && (
+            <div className="rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Noise: {(draft as any).noiseAssessment.assessment_summary?.slice(0, 80)}…
+            </div>
+          )}
+          {(draft as any).thermalAssessment && (
+            <div className="rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              Thermal: {(draft as any).thermalAssessment.comfort_report?.months_in_comfort_band}/12 comfortable months ·{" "}
+              hottest {(draft as any).thermalAssessment.climate_summary?.hottest_month_avg?.toFixed(1)}°C
+            </div>
+          )}
         </Card>
       </div>
 
@@ -132,6 +263,13 @@ export function ApartmentConfigurator() {
             <Card key={a.id} className="p-3 rounded-2xl cursor-pointer hover:bg-muted" onClick={() => setDraft(a)}>
               <div className="font-medium truncate">{a.label}</div>
               <div className="text-xs text-muted-foreground truncate">{a.address}</div>
+              {(a.noiseScore || a.neighborhoodScore || a.thermalScore) && (
+                <div className="flex gap-2 mt-1">
+                  {a.noiseScore != null && <span className="text-[10px] bg-primary/10 text-primary rounded-full px-1.5 py-0.5">N:{a.noiseScore}</span>}
+                  {a.neighborhoodScore != null && <span className="text-[10px] bg-primary/10 text-primary rounded-full px-1.5 py-0.5">W:{a.neighborhoodScore}</span>}
+                  {a.thermalScore != null && <span className="text-[10px] bg-primary/10 text-primary rounded-full px-1.5 py-0.5">T:{a.thermalScore}</span>}
+                </div>
+              )}
             </Card>
           ))}
         </div>

@@ -112,16 +112,21 @@ export class RoomEnvironment {
             box.getCenter(center);
           }
 
-          const GRID_Y = -1.6;
+          const GRID_Y = 0;
           this._mesh.position.x -= center.x;
           this._mesh.position.z -= center.z;
           this._mesh.position.y = GRID_Y - box.min.y;
           this._innerMesh.position.copy(this._mesh.position);
 
           const finalScale = this._mesh.scale.x;
+          // np_coor2xy returns floor-plan pixel coords: x ∈ [0,1024], z ∈ [0,512]
+          // normalized by 512 in floor_polygon.py. Convert back to PLY world-space:
+          //   PLY x = pt.x * 512 - 511.5   (un-normalize, remove center offset)
+          //   PLY y = pt.z * 512 - 255.5   (un-normalize, remove center offset)
+          // Three.js rotation.x = -π/2 maps PLY y → -Three.js z, so negate z.
           this._floorPolygon = rawPolygon.map((pt) => ({
-            x: pt.x * finalScale - center.x,
-            z: pt.z * finalScale - center.z,
+            x: (pt.x * 512 - 511.5) * finalScale - center.x,
+            z: (255.5 - pt.z * 512) * finalScale - center.z,
           }));
 
           resolve(this._mesh);

@@ -11,7 +11,27 @@ pylsd-nova>=1.2.0
 opencv-python>=4.7.0
 requests>=2.28.0
 djangorestframework>=3.14.0
+djangorestframework-simplejwt>=5.3.0
 djoser>=2.2.5
 django-cors-headers>=4.3.0
 PyJWT>=2.8.0
 python-decouple>=3.8
+pydantic>=2.0
+# Social simulation (Ollama LLM, ChromaDB memory, embeddings)
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+python-dotenv>=1.0.0
+ultralytics>=8.1.0
+# Pin transformers to a version compatible with groundingdino-py.
+# groundingdino-py uses BertModel.get_head_mask which was removed in transformers>=4.40.
+# sentence-transformers 2.x supports transformers>=4.6, so >=4.38,<4.40 is safe.
+transformers>=4.38.0,<4.40.0
+# Optional: Grounding DINO open-vocab detector (set DETECTOR_BACKEND=gdino to activate)
+groundingdino-py>=0.4.0
+# LLM backends — TokenFactory uses OpenAI-compatible API
+openai>=1.0.0
+ollama>=0.1.0
+# Persistent disk cache for noise assessment results
+diskcache>=5.6.0
+# Travel time estimation for neighborhood profiling
+openrouteservice>=2.3.3

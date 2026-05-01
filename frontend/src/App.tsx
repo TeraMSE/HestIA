@@ -12,6 +12,7 @@ import Signup from "./pages/Signup.tsx";
 import MapHome from "./pages/MapHome.tsx";
 import Upload from "./pages/Upload.tsx";
 import Property3D from "./pages/Property3D.tsx";
+import Settings from "./pages/Settings.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -54,6 +55,14 @@ const App = () => {
               element={
                 <ProtectedRoute>
                   <Property3D />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Settings />
                 </ProtectedRoute>
               }
             />

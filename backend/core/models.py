@@ -56,6 +56,24 @@ class Panorama(models.Model):
         return f"Panorama for {self.property.address}"
 
 
+class PropertyInterest(models.Model):
+    """Tracks which users have marked interest in a property (for multiplayer sim)."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="property_interests"
+    )
+    property = models.ForeignKey(
+        Property, on_delete=models.CASCADE, related_name="interested_users"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("user", "property")]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.email} interested in {self.property.address}"
+
+
 class PropertyImage(models.Model):
     id = models.BigAutoField(primary_key=True)
     property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name="images")
