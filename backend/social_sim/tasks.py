@@ -463,3 +463,279 @@ def start_life_sim_thread(run_id: str) -> None:
     t = threading.Thread(target=run_life_simulation, args=(str(run_id),), daemon=True)
     t.start()
 
+
+
+# -- Cohabitation Simulation (two personas) -------------------------------------
+
+def run_cohabitation_simulation(run_id: str) -> None:
+    """
+    Execute the full roommate cohabitation simulation pipeline:
+    1. Load both personas (A=owner, B=partner) and property config from DB.
+    2. Run RoommateCompatibilityAgent for conflict detection.
+    3. Run MediationAgent to propose house rules.
+    4. Run SOTOPIAInspiredScorer for the final grade.
+    5. Stream partial events to DB every 4 ticks.
+    """
+    import django
+    django.setup() if not django.conf.settings.configured else None
+
+    from social_sim.models import SocialSimRun
+    from social_sim.engine.persona import Persona
+    from social_sim.engine.life_sim_engine import LifeSimEngine, LifeSimRequest
+    from social_sim.engine.mediation import MediationAgent
+    from social_sim.engine.scoring import SOTOPIAInspiredScorer
+
+    try:
+        from personality_builder.llm_client import UnifiedLLMClient
+        import os
+        llm_backend = os.getenv("LLM_BACKEND", "tokenfactory")
+        llm = UnifiedLLMClient(backend=llm_backend)
+        logger.info("[CohabSim] Using UnifiedLLMClient backend=%s", llm_backend)
+    except Exception:
+        from social_sim.engine.llm_client import OllamaLLMClient
+        llm = OllamaLLMClient()
+        logger.info("[CohabSim] Falling back to OllamaLLMClient")
+
+    try:
+        run = SocialSimRun.objects.get(pk=run_id)
+    except SocialSimRun.DoesNotExist:
+        logger.error("[CohabSim] Run %s not found", run_id)
+        return
+
+    lat = run.property_lat or 36.8065
+    lon = run.property_lon or 10.1815
+    sim_month = run.simulation_month or 7
+    num_ticks = run.num_ticks or 24
+
+    def _update(progress: int, status_str: str = "running", **fields) -> None:
+        SocialSimRun.objects.filter(pk=run_id).update(
+            progress=progress, status=status_str, **fields
+        )
+
+    try:
+        _update(2, "running")
+        logger.info("[CohabSim] Run %s starting (lat=%.4f lon=%.4f month=%s)",
+                    run_id, lat, lon, sim_month)
+
+        # Load Property model
+        prop_model = None
+        if run.property_id:
+            try:
+                from core.models import Property as CoreProperty
+                prop_model = CoreProperty.objects.get(pk=run.property_id)
+            except Exception:
+                logger.warning("[CohabSim] Could not load Property %s", run.property_id)
+
+        # Step 1: Noise
+        noise_data = run.noise_assessment_data or {}
+        if not noise_data:
+            try:
+                from social_sim.noise_assessment.noise_engine import (
+                    NoiseAssessmentEngine, NoiseAssessmentRequest,
+                )
+                noise_resp = NoiseAssessmentEngine().assess(
+                    NoiseAssessmentRequest(lat=lat, lon=lon, radius_m=500)
+                )
+                noise_data = noise_resp.model_dump()
+            except Exception as exc:
+                logger.warning("[CohabSim] Noise failed: %s", exc)
+
+        geo_sources = _build_geo_sources_from_noise(noise_data, lat, lon)
+
+        # Step 2: Neighbourhood
+        neighbourhood_data = run.neighbourhood_profile_data or {}
+        if not neighbourhood_data:
+            try:
+                from social_sim.neighborhood.neighborhood_engine import (
+                    NeighborhoodProfileEngine, NeighborhoodRequest,
+                )
+                nb_resp = NeighborhoodProfileEngine().profile(
+                    NeighborhoodRequest(lat=lat, lon=lon)
+                )
+                neighbourhood_data = nb_resp.model_dump()
+            except Exception as exc:
+                logger.warning("[CohabSim] Neighbourhood failed: %s", exc)
+
+        poi_geo = _build_pois_from_neighbourhood(neighbourhood_data)
+        SocialSimRun.objects.filter(pk=run_id).update(
+            noise_sources_geo=geo_sources,
+            neighbourhood_pois_geo=poi_geo,
+            progress=15,
+        )
+
+        # Step 3: Thermal
+        thermal_data = run.thermal_assessment_data or {}
+        if not thermal_data:
+            try:
+                from social_sim.thermal.thermal_report import ThermalReportBuilder
+                t_result = ThermalReportBuilder().build(
+                    lat=lat, lon=lon, address="",
+                    floor_number=prop_model.floor_number if prop_model else 1,
+                    orientation=prop_model.orientation if prop_model else "unknown",
+                    building_mass=prop_model.building_mass if prop_model else "heavy",
+                    building_condition=prop_model.building_condition if prop_model else "good",
+                    has_cooling=prop_model.has_cooling if prop_model else False,
+                    has_heating=prop_model.has_heating if prop_model else True,
+                    has_balcony=prop_model.has_balcony if prop_model else False,
+                    has_windows=prop_model.has_windows if prop_model else True,
+                )
+                thermal_data = t_result.model_dump() if hasattr(t_result, "model_dump") else {}
+            except Exception as exc:
+                logger.warning("[CohabSim] Thermal failed: %s", exc)
+        _update(22)
+
+        # Step 4: Build property_data
+        from social_sim.engine.environment import EnvironmentEngine
+        env_engine = EnvironmentEngine()
+
+        if prop_model:
+            sim_property = env_engine.create_mock_property(
+                noise_level=float(noise_data.get("noise_level", 0.4)),
+                smoking_allowed=prop_model.smoking_allowed,
+            )
+            sim_property.property_id = str(prop_model.pk)
+            sim_property.address = prop_model.address or ""
+            user_attributes = {
+                "has_heating": prop_model.has_heating,
+                "has_cooling": prop_model.has_cooling,
+                "has_elevator": prop_model.has_elevator,
+                "floor_number": prop_model.floor_number,
+                "has_kitchen": prop_model.has_kitchen,
+                "has_cleaning_supplies": prop_model.has_cleaning_supplies,
+                "has_internet": prop_model.has_internet,
+                "internet_type": prop_model.internet_type,
+                "building_condition": prop_model.building_condition,
+                "furnished": prop_model.furnished,
+                "natural_light": prop_model.natural_light,
+                "has_balcony": prop_model.has_balcony,
+                "has_windows": prop_model.has_windows,
+                "building_age_years": prop_model.building_age_years,
+                "simulation_month": sim_month,
+                "bus_stop_nearby": bool(
+                    (neighbourhood_data.get("walkability") or {}).get("bus_stop_nearby", False)
+                ),
+            }
+        else:
+            sim_property = env_engine.create_mock_property(
+                noise_level=float(noise_data.get("noise_level", 0.4))
+            )
+            sim_property.property_id = "unknown"
+            sim_property.address = ""
+            user_attributes = {
+                "has_heating": True, "has_elevator": False, "floor_number": 1,
+                "has_kitchen": True, "has_cleaning_supplies": True,
+                "has_internet": True, "building_condition": "good",
+                "furnished": False, "simulation_month": sim_month,
+                "bus_stop_nearby": True,
+            }
+
+        property_data = sim_property.model_dump()
+        _update(28)
+
+        # Step 5: Build personas
+        persona_a_data = run.persona_a or {}
+        persona_b_data = run.persona_b or {}
+        if not persona_b_data:
+            raise ValueError("persona_b missing — partner has no saved persona")
+
+        persona_a = Persona.from_dict(persona_a_data)
+        persona_b = Persona.from_dict(persona_b_data)
+
+        # Step 6: Run cohabitation EILS engine
+        engine = LifeSimEngine(llm_client=llm)
+        partial_events: list[dict] = []
+        tick_counter = [0]
+
+        def progress_cb(pct: int, msg: str, event: any = None) -> None:
+            tick_counter[0] += 1
+            if event:
+                ed = event.model_dump() if hasattr(event, "model_dump") else event
+                partial_events.append(_tag_event_location(ed, lat, lon))
+            progress_pct = 28 + int(pct * 0.55)
+            if tick_counter[0] % 4 == 0 or pct >= 99:
+                SocialSimRun.objects.filter(pk=run_id).update(
+                    sim_events_partial=partial_events,
+                    progress=min(83, progress_pct),
+                )
+
+        req = LifeSimRequest(
+            mode="cohabitation",
+            persona_a=persona_a_data,
+            persona_b=persona_b_data,
+            property_data=property_data,
+            user_attributes=user_attributes,
+            noise_assessment=noise_data if noise_data else None,
+            neighborhood_profile=neighbourhood_data if neighbourhood_data else None,
+            thermal_report=thermal_data if thermal_data else None,
+            simulation_month=sim_month,
+            commute_destination=run.commute_destination or None,
+            num_ticks=num_ticks,
+            use_daily_plan=True,
+        )
+
+        result = engine.simulate_cohabitation(req, progress_callback=progress_cb)
+        _update(84)
+
+        # Step 7: Mediation
+        compat_result = result.get("roommate_compatibility", {})
+        mediation_result = MediationAgent(llm_client=llm).mediate_all_conflicts(
+            compatibility_result=compat_result,
+            persona_a=persona_a,
+            persona_b=persona_b,
+        )
+        _update(90)
+
+        # Step 8: SOTOPIA Score
+        sim_result_for_scorer = {
+            "final_satisfaction": (
+                float(compat_result.get("persona_a_satisfaction", 0.5)) +
+                float(compat_result.get("persona_b_satisfaction", 0.5))
+            ) / 2.0
+        }
+        score = SOTOPIAInspiredScorer(llm_client=llm).compute_full_score(
+            sim_result=sim_result_for_scorer,
+            compat_result=compat_result,
+            med_result=mediation_result,
+            persona_a=persona_a,
+            persona_b=persona_b,
+            property_id=sim_property.property_id,
+        )
+        _update(96)
+
+        # Step 9: Persist
+        full_result = {**result, "mediation": mediation_result, "score": score.model_dump()}
+        mediation_summary = ""
+        if mediation_result.get("mediations"):
+            mediation_summary = str(
+                mediation_result["mediations"][0].get("mediation_summary", "")
+            )
+
+        SocialSimRun.objects.filter(pk=run_id).update(
+            status="completed",
+            progress=100,
+            result=full_result,
+            sim_events_partial=partial_events,
+            compatibility_score=float(
+                mediation_result.get("final_compatibility_score",
+                                     compat_result.get("compatibility_score", 0.5))
+            ),
+            mediation_rules=mediation_result.get("lease_checklist", []),
+            mediation_summary=mediation_summary,
+        )
+        logger.info("[CohabSim] Run %s completed: score=%.2f grade=%s",
+                    run_id, score.overall_score, score.grade)
+
+    except Exception as exc:
+        err_text = traceback.format_exc()
+        logger.error("[CohabSim] Run %s failed: %s", run_id, err_text)
+        SocialSimRun.objects.filter(pk=run_id).update(
+            status="failed",
+            error=err_text[:4000],
+        )
+
+
+def start_cohabitation_thread(run_id: str) -> None:
+    """Kick off the cohabitation simulation in a daemon thread."""
+    t = threading.Thread(target=run_cohabitation_simulation, args=(str(run_id),), daemon=True)
+    t.start()
+

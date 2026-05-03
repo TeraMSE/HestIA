@@ -849,3 +849,200 @@ class LifeSimStatusView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HestIA-LS: Cohabitation Simulation — Start + Status
+# ──────────────────────────────────────────────────────────────────────────────
+
+class CohabStartView(APIView):
+    """
+    POST /api/v1/social-sim/cohab/start/
+
+    Starts a two-persona cohabitation simulation.
+    Loads both users' personas from the UserPersona model.
+
+    Body:
+      {
+        "lat": 36.8065, "lon": 10.1815,
+        "property_id": "42",            // optional
+        "partner_user_id": 7,           // required — the other user's ID
+        "simulation_month": 7,          // 1-12, defaults to current month
+        "commute_destination": "...",   // optional
+        "num_ticks": 24                 // 6-48
+      }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request: Request) -> Response:
+        import calendar
+        from datetime import datetime
+
+        from social_sim.engine.layout_builder import build_default_layout
+        from social_sim.tasks import start_cohabitation_thread
+        from users.models import UserPersona
+
+        body = request.data or {}
+        lat = body.get("lat")
+        lon = body.get("lon")
+        if lat is None or lon is None:
+            return Response(
+                {"detail": "lat and lon are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            lat_f = float(lat)
+            lon_f = float(lon)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "lat and lon must be numeric."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        partner_user_id = body.get("partner_user_id")
+        if not partner_user_id:
+            return Response(
+                {"detail": "partner_user_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            partner_user_id = int(partner_user_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "partner_user_id must be an integer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Load own persona
+        try:
+            my_persona_obj = UserPersona.objects.get(user=request.user)
+            persona_a_data = my_persona_obj.payload
+        except UserPersona.DoesNotExist:
+            return Response(
+                {"detail": "You don't have a saved persona yet. Please complete the Persona Builder first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Load partner persona
+        try:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            partner_user = User.objects.get(pk=partner_user_id)
+            partner_persona_obj = UserPersona.objects.get(user=partner_user)
+            persona_b_data = partner_persona_obj.payload
+        except (User.DoesNotExist, UserPersona.DoesNotExist):
+            return Response(
+                {"detail": "Partner user not found or has no saved persona."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Parse optional params
+        simulation_month = body.get("simulation_month")
+        if simulation_month is not None:
+            try:
+                simulation_month = max(1, min(12, int(simulation_month)))
+            except (TypeError, ValueError):
+                simulation_month = datetime.now().month
+        else:
+            simulation_month = datetime.now().month
+
+        try:
+            num_ticks = max(6, min(48, int(body.get("num_ticks", 24))))
+        except (TypeError, ValueError):
+            num_ticks = 24
+
+        commute_destination = str(body.get("commute_destination", "")).strip()
+        property_id = str(body.get("property_id", "")).strip() or None
+
+        layout = build_default_layout()
+
+        run = SocialSimRun.objects.create(
+            user=request.user,
+            user_b=partner_user,
+            property_id=property_id,
+            status="queued",
+            progress=0,
+            persona_a=persona_a_data,
+            persona_b=persona_b_data,
+            apartment_layout=layout,
+            property_lat=lat_f,
+            property_lon=lon_f,
+            simulation_month=simulation_month,
+            commute_destination=commute_destination,
+            num_ticks=num_ticks,
+        )
+
+        start_cohabitation_thread(str(run.id))
+
+        return Response(
+            {
+                "run_id": str(run.id),
+                "status": run.status,
+                "simulation_month": simulation_month,
+                "month_name": calendar.month_name[simulation_month],
+                "persona_a_name": persona_a_data.get("name", "You"),
+                "persona_b_name": persona_b_data.get("name", partner_persona_obj.name),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CohabStatusView(APIView):
+    """
+    GET /api/v1/social-sim/cohab/{run_id}/
+
+    Returns status, progress, partial events, geo overlay data,
+    and (when completed) the full compatibility result.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request, run_id: str) -> Response:
+        try:
+            # Allow either the owner (user) or the partner (user_b) to poll
+            from django.db.models import Q
+            run = SocialSimRun.objects.get(
+                Q(user=request.user) | Q(user_b=request.user),
+                pk=run_id,
+            )
+        except SocialSimRun.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        compat_score = None
+        compat_label = None
+        grade = None
+        if run.status == "completed" and run.result:
+            compat_score = run.compatibility_score
+            compat_result = (run.result.get("roommate_compatibility") or {})
+            compat_label = compat_result.get("compatibility_label")
+            score_data = (run.result.get("score") or {})
+            grade = score_data.get("grade")
+
+        return Response(
+            {
+                "run_id": str(run.id),
+                "status": run.status,
+                "progress": run.progress,
+                "simulation_month": run.simulation_month,
+                "commute_destination": run.commute_destination,
+                "property_lat": run.property_lat,
+                "property_lon": run.property_lon,
+                "noise_sources_geo": run.noise_sources_geo or [],
+                "neighbourhood_pois_geo": run.neighbourhood_pois_geo or [],
+                "events": run.sim_events_partial or [],
+                "result": run.result if run.status == "completed" else None,
+                "compatibility_score": compat_score,
+                "compatibility_label": compat_label,
+                "grade": grade,
+                "mediation_rules": run.mediation_rules if run.status == "completed" else None,
+                "mediation_summary": run.mediation_summary if run.status == "completed" else None,
+                "persona_a": run.persona_a,
+                "persona_b": run.persona_b,
+                "error": run.error or None,
+            },
+            status=status.HTTP_200_OK,
+        )
+

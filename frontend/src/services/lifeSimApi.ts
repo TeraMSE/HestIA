@@ -79,3 +79,57 @@ export const lifeSimApi = {
     return res.data;
   },
 };
+
+// ── Cohabitation Simulation API ────────────────────────────────────────────
+
+export interface CohabStartPayload {
+  lat: number;
+  lon: number;
+  property_id?: string | number;
+  partner_user_id: number;
+  simulation_month?: number;
+  commute_destination?: string;
+  num_ticks?: number;
+}
+
+export interface CohabStartResponse {
+  run_id: string;
+  status: string;
+  simulation_month: number;
+  month_name: string;
+  persona_a_name: string;
+  persona_b_name: string;
+}
+
+export interface CohabStatus {
+  run_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  progress: number;
+  simulation_month: number | null;
+  property_lat: number | null;
+  property_lon: number | null;
+  noise_sources_geo: GeoNoiseSource[];
+  neighbourhood_pois_geo: GeoPOI[];
+  events: SimEvent[];
+  result: Record<string, unknown> | null;
+  compatibility_score: number | null;
+  compatibility_label: string | null;
+  grade: string | null;
+  mediation_rules: string[] | null;
+  mediation_summary: string | null;
+  persona_a: Record<string, unknown> | null;
+  persona_b: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export const cohabApi = {
+  async startCohab(payload: CohabStartPayload): Promise<CohabStartResponse> {
+    const res = await api.post("/social-sim/cohab/start/", payload);
+    return res.data;
+  },
+
+  async getStatus(runId: string): Promise<CohabStatus> {
+    const res = await api.get(`/social-sim/cohab/${runId}/`);
+    return res.data;
+  },
+};

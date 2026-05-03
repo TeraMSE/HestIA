@@ -208,6 +208,8 @@ DJOSER = {
     "SERIALIZERS": {
         "user_create": "users.serializers.CustomUserCreateSerializer",
         "user": "users.serializers.CustomUserSerializer",
+        # current_user controls GET/PATCH /auth/users/me/ — must be set explicitly
+        "current_user": "users.serializers.CustomUserSerializer",
     },
 }
 

@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -24,8 +25,13 @@ from room_sim.pipeline.runner import submit_pipeline_job
 
 
 class PropertyViewSet(viewsets.ModelViewSet):
+    """
+    Full CRUD for Property records.
+    Accepts JSON for create/update (default DRF parsers).
+    File uploads go through the separate PanoramaUploadView which has its own parsers.
+    """
     permission_classes = (IsAuthenticatedOrReadOnly,)
-    parser_classes = (MultiPartParser, FormParser)
+    authentication_classes = (JWTAuthentication,)
     filterset_fields = ("for_sale", "for_rent", "is_active")
     search_fields = ("address", "owner__email")
     ordering_fields = ("created_at", "price_tnd")

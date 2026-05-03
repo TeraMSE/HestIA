@@ -12,7 +12,8 @@ export type OverlayId =
   | "reports"
   | "material-agent"
   | "admin-assistant"
-  | "neighborhood-intel";
+  | "neighborhood-intel"
+  | "roommate-compat";
 
 interface AppState {
   // Auth
@@ -63,6 +64,10 @@ interface AppState {
   activeOverlay: OverlayId;
   openOverlay: (id: OverlayId) => void;
   closeOverlay: () => void;
+
+  // Landlord placement mode
+  placementMode: boolean;
+  setPlacementMode: (v: boolean) => void;
 }
 
 export const useApp = create<AppState>((set) => ({
@@ -109,4 +114,7 @@ export const useApp = create<AppState>((set) => ({
   activeOverlay: null,
   openOverlay: (id) => set({ activeOverlay: id }),
   closeOverlay: () => set({ activeOverlay: null }),
+
+  placementMode: false,
+  setPlacementMode: (placementMode) => set({ placementMode }),
 }));

@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Friendship, UserPersona
+from core.models import PropertyInterest
 
 User = get_user_model()
 
@@ -119,3 +120,11 @@ def search_users(request):
          "display_name": u.get_full_name() or u.username or u.email.split("@")[0]}
         for u in qs
     ])
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_interests(request):
+    """Return the list of property IDs the current user has marked interest in."""
+    ids = PropertyInterest.objects.filter(user=request.user).values_list("property_id", flat=True)
+    return Response({"interested_property_ids": [str(i) for i in ids]})

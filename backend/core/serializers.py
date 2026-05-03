@@ -23,16 +23,43 @@ class PropertyListSerializer(serializers.ModelSerializer):
     owner_name = serializers.SerializerMethodField()
     panorama_count = serializers.SerializerMethodField()
     has_3d = serializers.SerializerMethodField()
+    area_m2 = serializers.FloatField(required=False, allow_null=True)
+    price_tnd = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    # Fields not collected by the basic AddPropertyModal form — all optional with model defaults
+    building_mass = serializers.CharField(required=False, default="medium")
+    building_age_years = serializers.IntegerField(required=False, default=10)
+    natural_light = serializers.FloatField(required=False, default=0.6)
+    internet_type = serializers.CharField(required=False, default="unknown")
+    smoking_allowed = serializers.BooleanField(required=False, default=False)
+    has_heating = serializers.BooleanField(required=False, default=False)
+    has_balcony = serializers.BooleanField(required=False, default=False)
+    has_internet = serializers.BooleanField(required=False, default=True)
+    has_kitchen = serializers.BooleanField(required=False, default=True)
+    has_cleaning_supplies = serializers.BooleanField(required=False, default=True)
+    has_storage = serializers.BooleanField(required=False, default=False)
+    has_security = serializers.BooleanField(required=False, default=False)
+    has_windows = serializers.BooleanField(required=False, default=True)
+    apt_configured = serializers.BooleanField(required=False, default=False)
 
     class Meta:
         model = Property
         fields = (
-            "id", "address", "lat", "lng", "bedrooms", "bathrooms",
+            "id", "address", "description", "lat", "lng", "bedrooms", "bathrooms",
             "area_m2", "price_tnd", "for_sale", "for_rent",
+            "floor_number", "orientation", "building_mass", "building_condition",
+            "has_elevator", "has_cooling", "has_heating", "has_balcony",
+            "has_internet", "has_kitchen", "has_cleaning_supplies", "has_parking",
+            "has_storage", "has_security", "has_windows", "furnished",
+            "smoking_allowed", "natural_light", "building_age_years",
+            "internet_type", "apt_configured",
             "owner_id", "owner_email", "owner_name",
             "panorama_count", "has_3d", "created_at",
         )
         read_only_fields = ("id", "created_at", "owner_id", "owner_email", "owner_name")
+
+    def create(self, validated_data):
+        validated_data["owner"] = self.context["request"].user
+        return super().create(validated_data)
 
     def get_panorama_count(self, obj):
         return obj.panoramas.filter(status="completed").count()
@@ -43,6 +70,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
 
     def get_has_3d(self, obj):
         return obj.reconstruction_jobs.filter(state="completed").exists()
+
 
 
 class PropertyDetailSerializer(serializers.ModelSerializer):

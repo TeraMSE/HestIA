@@ -38,7 +38,7 @@ export function MapOverlays() {
         const res = await api.get("/properties/");
         const backendPins: PropertyPin[] = (res.data.results ?? res.data).map((p: any) => ({
           id: String(p.id),
-          kind: "user_pin" as const,
+          kind: "property" as const,
           lat: Number(p.lat),
           lng: Number(p.lng),
           title: p.address,

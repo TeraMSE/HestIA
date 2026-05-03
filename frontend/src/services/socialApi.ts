@@ -93,4 +93,14 @@ export const socialApi = {
     const res = await api.get(`/properties/${propertyId}/interest/`);
     return res.data;
   },
+
+  /** Get all property IDs the current user has marked interest in. */
+  async getMyInterests(): Promise<string[]> {
+    try {
+      const res = await api.get("/users/me/interests/");
+      return res.data.interested_property_ids ?? [];
+    } catch {
+      return [];
+    }
+  },
 };

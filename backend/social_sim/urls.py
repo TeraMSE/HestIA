@@ -65,4 +65,16 @@ urlpatterns = [
         views.LifeSimStatusView.as_view(),
         name="social-sim-life-sim-status",
     ),
+
+    # ── HestIA-LS: Cohabitation Simulation ────────────────────────────────────
+    path(
+        "cohab/start/",
+        views.CohabStartView.as_view(),
+        name="social-sim-cohab-start",
+    ),
+    path(
+        "cohab/<uuid:run_id>/",
+        views.CohabStatusView.as_view(),
+        name="social-sim-cohab-status",
+    ),
 ]
