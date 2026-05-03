@@ -7,7 +7,7 @@ export type OverlayId =
   | "module-dashboard"
   | "persona-builder"
   | "apartment-configurator"
-  | "simulation-runner"
+  | "apt-configurator"
   | "visual-replay"
   | "reports"
   | "material-agent"

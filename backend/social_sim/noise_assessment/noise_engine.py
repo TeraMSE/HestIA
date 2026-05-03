@@ -34,6 +34,7 @@ class NoiseAssessmentResponse(BaseModel):
     noise_level: float
     noise_label: str
     top_sources: list[str]
+    geo_sources: list[dict] = []  # [{type, name, lat, lon, distance_m, weight}]
     breakdown: dict
     feature_count: int
     radius_m: int
@@ -98,6 +99,7 @@ class NoiseAssessmentEngine:
             noise_level=score_result.noise_level,
             noise_label=score_result.label,
             top_sources=score_result.top_sources,
+            geo_sources=[src.model_dump() for src in score_result.geo_sources],
             breakdown=score_result.breakdown,
             feature_count=score_result.feature_count,
             radius_m=request.radius_m,

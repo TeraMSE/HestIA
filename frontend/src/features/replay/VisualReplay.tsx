@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Upload, Users, Eye, Play, Sparkles } from "lucide-react";
+import { Upload, Users, Eye, Play, Sparkles, Loader2, Bot, MapPin, CheckCircle2, FileText, Activity, CheckCircle, AlertCircle, XCircle, TrendingUp, TrendingDown, Target } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,9 +21,16 @@ import { ScenarioEngine, ScenarioPhase, ScenarioReport } from "../room-sim/engin
 import type { Agent } from "../room-sim/engine/StateSystem";
 import { toast } from "sonner";
 import { useApp } from "@/shared/store/useApp";
+import { useAuthStore } from "@/shared/store/useAuthStore";
+import { useSimStore } from "@/shared/store/useSimStore";
+import { lifeSimApi } from "@/services/lifeSimApi";
+import type { SimEvent } from "@/services/lifeSimApi";
 
 export function VisualReplay() {
-  const { replayMode, setReplayMode, selectedPersonaA, selectedPersonaB, personas } = useApp();
+  const { replayMode, setReplayMode, selectedPersonaA, selectedPersonaB, personas, pins, selectedPinId } = useApp();
+  const { user } = useAuthStore();
+  const simStore = useSimStore();
+  const selectedPin = pins.find((p) => p.id === selectedPinId) ?? null;
 
   /* refs for Three.js */
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,6 +56,7 @@ export function VisualReplay() {
   const [currentPhase, setCurrentPhase] = useState<ScenarioPhase | null>(null);
   const [rulesData, setRulesData] = useState<string[] | null>(null);
   const [reportData, setReportData] = useState<ScenarioReport | null>(null);
+  const [lifeSimReport, setLifeSimReport] = useState<any | null>(null);
   const [, forceUpdate] = useState(0);
 
   /* UI state */
@@ -55,6 +64,12 @@ export function VisualReplay() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [alignPano, setAlignPano] = useState(true);
   const [hideCeiling, setHideCeiling] = useState(true);
+
+  /* Life sim state */
+  const [lifeSimActive, setLifeSimActive] = useState(false);
+  const [lifeSimStarting, setLifeSimStarting] = useState(false);
+  const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const feedEndRef = useRef<HTMLDivElement>(null);
 
   /* ── Initialize Three.js scene ─────────────────────────────────── */
   useEffect(() => {
@@ -157,32 +172,92 @@ export function VisualReplay() {
     };
   }, []);
 
-  /* ── Auto-Spawn Personas on Room Ready ─────────────────────────── */
+  /* ── Auto-Spawn User Persona on Room Ready ─────────────────────── */
   useEffect(() => {
     if (roomReady && agentMgrRef.current && agents.length === 0) {
-      if (selectedPersonaA) {
-        const p1 = personas.find(p => p.id === selectedPersonaA);
-        const p2 = selectedPersonaB ? personas.find(p => p.id === selectedPersonaB) : null;
-        
-        if (p1) {
-          const a1 = agentMgrRef.current.spawnAgent("male");
-          if (a1) {
-            a1.label = p1.name;
-            a1.color = p1.avatarColor || a1.color;
-          }
-          if (p2) {
-            const a2 = agentMgrRef.current.spawnAgent("female");
-            if (a2) {
-              a2.label = p2.name;
-              a2.color = p2.avatarColor || a2.color;
+      // Auto-spawn the authenticated user's persona
+      const userName = user?.first_name || user?.email?.split("@")[0] || "You";
+      const a = agentMgrRef.current.spawnAgent("male");
+      if (a) {
+        a.label = userName;
+        a.color = "#22d3ee"; // cyan
+      }
+      toast.success(`Your persona "${userName}" is ready in the room.`);
+      setTab("agents");
+    }
+  }, [roomReady, user, agents.length]);
+
+  /* ── Life Simulation: start + poll ─────────────────────────────── */
+  const handleStartLifeSim = useCallback(async () => {
+    if (!selectedPin) {
+      toast.error("No property selected.");
+      return;
+    }
+    setLifeSimStarting(true);
+    try {
+      const res = await lifeSimApi.startSim({
+        lat: selectedPin.lat,
+        lon: selectedPin.lng,
+        property_id: String(selectedPin.id),
+        num_ticks: 24,
+      });
+      simStore.startRun(res.run_id, res.simulation_month, res.month_name);
+      setLifeSimActive(true);
+      toast.success(`Life Simulation started — ${res.month_name}`);
+
+      // Start polling
+      pollerRef.current = setInterval(async () => {
+        try {
+          const st = await lifeSimApi.getStatus(res.run_id);
+          simStore.updateRun(
+            st.status,
+            st.progress,
+            st.events || [],
+            st.noise_sources_geo,
+            st.neighbourhood_pois_geo,
+          );
+
+          // Drive the 3D agent for indoor events
+          if (agentMgrRef.current && agents.length > 0) {
+            const latestIndoor = [...(st.events || [])].reverse().find(e => e.location_type === "indoor");
+            if (latestIndoor) {
+              const agent = agents[0];
+              agent.currentAction = latestIndoor.action || latestIndoor.narrative || "idle";
             }
           }
-          toast.success(p2 ? `Spawned ${p1.name} & ${p2.name} in the room.` : `Spawned ${p1.name} in the room.`);
-          setTab("agents");
-        }
-      }
+
+          if (st.status === "completed" || st.status === "failed") {
+            clearInterval(pollerRef.current!);
+            pollerRef.current = null;
+            if (st.status === "completed") {
+              if (st.result) {
+                setLifeSimReport(st.result);
+              }
+              toast.success("Life Simulation completed!");
+            } else {
+              toast.error("Life Simulation failed: " + (st.error || "unknown"));
+            }
+          }
+        } catch { /* ignore poll errors */ }
+      }, 3000);
+    } catch (e: any) {
+      toast.error("Failed to start simulation: " + (e?.response?.data?.detail || e.message));
+    } finally {
+      setLifeSimStarting(false);
     }
-  }, [roomReady, selectedPersonaA, selectedPersonaB, personas, agents.length]);
+  }, [selectedPin, simStore, agents]);
+
+  // Cleanup poller on unmount
+  useEffect(() => {
+    return () => {
+      if (pollerRef.current) clearInterval(pollerRef.current);
+    };
+  }, []);
+
+  // Auto-scroll narrative feed
+  useEffect(() => {
+    feedEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [simStore.simEvents.length]);
 
   /* ── Pipeline: upload panorama ─────────────────────────────────── */
   const handleGenerate = useCallback(async () => {
@@ -272,12 +347,12 @@ export function VisualReplay() {
       </div>
 
       <div className="grid md:grid-cols-12 gap-6">
-        
+
         {/* ── LIVE VIEWPORT ── */}
         <Card className="md:col-span-8 rounded-3xl overflow-hidden relative h-[550px] border-[#1e1e35] bg-[#060610]">
           {/* 3D Canvas Container */}
           <div ref={containerRef} className={`absolute inset-0 transition-opacity duration-300 ${replayMode === "2d" ? "opacity-0 pointer-events-none" : "opacity-100"}`} />
-          
+
           {/* Labels layer (only shown in 3D mode) */}
           <div ref={labelsRef} className={`absolute inset-0 pointer-events-none overflow-hidden ${replayMode === "2d" ? "hidden" : ""}`} />
 
@@ -286,17 +361,18 @@ export function VisualReplay() {
             <div className="absolute inset-4 rounded-2xl border border-[hsl(var(--holo-cyan)/0.3)] bg-gradient-to-b from-[#0a0a1a] to-[#060610] shadow-[inset_0_0_50px_rgba(0,0,0,0.5)]">
               {/* Floor grid pattern */}
               <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:20px_20px]" />
-              
-              {agents.map((a) => {
+
+              {agents && Array.isArray(agents) && agents.map((a) => {
+                if (!a) return null;
                 // Map x,z to percentages (roughly -5 to +5 meters maps to 0-100%)
-                const px = Math.max(5, Math.min(95, 50 + (a.x * 8)));
-                const py = Math.max(5, Math.min(95, 50 + (a.z * 8)));
-                
+                const px = Math.max(5, Math.min(95, 50 + ((a.x || 0) * 8)));
+                const py = Math.max(5, Math.min(95, 50 + ((a.z || 0) * 8)));
+
                 return (
                   <div key={a.id} className="absolute transition-all duration-100" style={{ left: `${px}%`, top: `${py}%`, transform: "translate(-50%, -50%)" }}>
                     <div className="relative">
-                      <div className="h-10 w-10 rounded-full grid place-items-center text-sm font-bold border-[3px] border-black shadow-[0_0_15px_rgba(0,0,0,0.5)] z-10" style={{ background: a.color }}>
-                        {a.label.charAt(0)}
+                      <div className="h-10 w-10 rounded-full grid place-items-center text-sm font-bold border-[3px] border-black shadow-[0_0_15px_rgba(0,0,0,0.5)] z-10" style={{ background: a.color || "#ccc" }}>
+                        {(a.label || "?").charAt(0)}
                       </div>
                       <div className="absolute -top-3 left-1/2 -translate-x-1/2 -translate-y-full max-w-[160px] text-xs bg-[#1e1e35] text-white px-3 py-1.5 rounded-xl shadow-lg border border-[hsl(var(--holo-cyan)/0.5)] text-center whitespace-nowrap z-20">
                         {a.isSleeping ? "💤 Sleeping" : a.isSitting ? "🪑 Sitting" : a.currentAction || "idle"}
@@ -325,7 +401,7 @@ export function VisualReplay() {
               </div>
             </div>
           )}
-          
+
           {/* Status overlay when generating */}
           {isGenerating && (
             <div className="absolute inset-x-0 bottom-0 p-3 bg-black/60 backdrop-blur-md border-t border-[hsl(var(--holo-cyan)/0.3)] z-30">
@@ -354,7 +430,7 @@ export function VisualReplay() {
                   </div>
                   <Input type="file" ref={fileRef} accept="image/*" className="rounded-2xl text-xs" />
                 </div>
-                
+
                 <div className="space-y-3 pt-1">
                   <div className="flex items-center justify-between rounded-2xl bg-muted p-3">
                     <Label className="text-sm cursor-pointer" htmlFor="align-pano">Viewport Align</Label>
@@ -393,9 +469,9 @@ export function VisualReplay() {
                   <Users className="h-4 w-4 text-[hsl(var(--holo-cyan))]" />
                   <Label className="font-medium">Run Live Scenario</Label>
                 </div>
-                
-                <Button 
-                  onClick={handleRunScenario} 
+
+                <Button
+                  onClick={handleRunScenario}
                   className="w-full mt-1 rounded-2xl shadow-sims bg-[hsl(var(--holo-cyan))] hover:bg-[hsl(var(--holo-cyan)/0.8)] text-black font-semibold"
                   disabled={agents.length === 0}
                 >
@@ -403,33 +479,70 @@ export function VisualReplay() {
                 </Button>
               </Card>
 
-              <Card className="rounded-3xl p-4 space-y-3">
-                <Label className="font-medium mb-1 block">Manual Spawn</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => {
-                      const a = agentMgrRef.current?.spawnAgent("male");
-                      if (a) toast.success("Spawned Male Agent");
-                    }}
-                    disabled={!roomReady}
-                    className="rounded-2xl border-[#1e1e35] hover:border-[hsl(var(--holo-cyan))] hover:text-[hsl(var(--holo-cyan))]"
-                  >
-                    + Male
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => {
-                      const a = agentMgrRef.current?.spawnAgent("female");
-                      if (a) toast.success("Spawned Female Agent");
-                    }}
-                    disabled={!roomReady}
-                    className="rounded-2xl border-[#1e1e35] hover:border-[hsl(var(--holo-cyan))] hover:text-[hsl(var(--holo-cyan))]"
-                  >
-                    + Female
-                  </Button>
+              {/* ── Life Simulation Trigger ── */}
+              <Card className="rounded-3xl p-4 space-y-3 border-primary/30 bg-primary/5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Bot className="h-4 w-4 text-[hsl(var(--holo-cyan))]" />
+                  <Label className="font-medium">Life Simulation</Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Runs a full 24-hour solo simulation of your daily life in this apartment.
+                </p>
+                <div className="flex gap-2 w-full mt-1">
+                  {simStore.simStatus === "completed" ? (
+                    <>
+                      <Button disabled className="flex-1 rounded-2xl shadow-sims bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 opacity-100">
+                        <CheckCircle2 className="h-4 w-4 mr-2" /> Completed
+                      </Button>
+                      <Button onClick={() => setLifeSimReport(lifeSimReport || true)} className="flex-1 rounded-2xl shadow-sims bg-[hsl(var(--holo-cyan))] text-black hover:bg-[hsl(var(--holo-cyan)/0.8)] font-semibold">
+                        <FileText className="h-4 w-4 mr-2" /> Final Report
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      onClick={handleStartLifeSim}
+                      disabled={!roomReady || agents.length === 0 || lifeSimStarting || lifeSimActive}
+                      className="w-full rounded-2xl shadow-sims"
+                      style={{ background: "linear-gradient(135deg, hsl(var(--primary)), hsl(185 95% 55%))", boxShadow: "0 0 20px hsl(var(--primary)/0.4)" }}
+                    >
+                      {lifeSimStarting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Starting…</>
+                      ) : lifeSimActive ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Simulating… {simStore.simProgress}%</>
+                      ) : (
+                        <><Bot className="h-4 w-4 mr-2" /> Start Life Simulation</>
+                      )}
+                    </Button>
+                  )}
                 </div>
               </Card>
+
+              {/* ── Narrative Event Feed ── */}
+              {lifeSimActive && simStore.simEvents.length > 0 && (
+                <Card className="rounded-3xl p-4 space-y-2 max-h-[200px] overflow-y-auto">
+                  <Label className="font-medium mb-2 block text-xs uppercase tracking-wider text-[hsl(var(--holo-cyan))]">
+                    Live Event Feed
+                  </Label>
+                  {simStore.simEvents.map((ev: SimEvent, i: number) => {
+                    if (!ev) return null;
+                    return (
+                      <div key={i} className={`text-xs p-2 rounded-xl border ${
+                        ev.outcome_type === "success" ? "border-emerald-700/40 bg-emerald-950/20" :
+                        ev.outcome_type === "blocked" ? "border-red-700/40 bg-red-950/20" :
+                        "border-border/40 bg-muted/30"
+                      }`}>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-muted-foreground">{ev.time_label || `T${ev.tick}`}</span>
+                          {ev.location_type === "outdoor" && <MapPin className="h-3 w-3 text-blue-400" />}
+                          <span className="font-medium">{ev.action || ev.action_name || ev.msg || "—"}</span>
+                        </div>
+                        {ev.narrative && <p className="text-muted-foreground mt-0.5 italic">{ev.narrative}</p>}
+                      </div>
+                    );
+                  })}
+                  <div ref={feedEndRef} />
+                </Card>
+              )}
 
               {agents.length > 0 && (
                 <Card className="rounded-3xl p-4">
@@ -439,11 +552,10 @@ export function VisualReplay() {
                       <button
                         key={a.id}
                         onClick={() => handleSelectAgent(a)}
-                        className={`flex items-center justify-between px-3 py-2 rounded-2xl text-xs transition-colors border ${
-                          selectedAgent?.id === a.id 
-                            ? "bg-[hsl(var(--holo-cyan)/0.15)] border-[hsl(var(--holo-cyan))] text-white" 
+                        className={`flex items-center justify-between px-3 py-2 rounded-2xl text-xs transition-colors border ${selectedAgent?.id === a.id
+                            ? "bg-[hsl(var(--holo-cyan)/0.15)] border-[hsl(var(--holo-cyan))] text-white"
                             : "bg-[#1e1e35] border-transparent text-gray-300 hover:border-gray-500"
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full shadow-sm" style={{ background: a.color }} />
@@ -454,13 +566,13 @@ export function VisualReplay() {
                     ))}
                   </div>
 
-                  {selectedAgent && (
+                  {selectedAgent && selectedAgent.state && (
                     <div className="rounded-2xl bg-black/40 border border-border/50 p-3 text-sm space-y-3">
                       <div className="grid grid-cols-2 gap-y-2 text-xs">
-                        <div className="flex justify-between px-1"><span>⚡ Energy</span><span className="font-mono text-[hsl(var(--holo-cyan))]">{selectedAgent.state.energy | 0}</span></div>
-                        <div className="flex justify-between px-1"><span>🍔 Hunger</span><span className="font-mono text-[hsl(var(--holo-cyan))]">{selectedAgent.state.hunger | 0}</span></div>
-                        <div className="flex justify-between px-1"><span>🛁 Hygiene</span><span className="font-mono text-[hsl(var(--holo-cyan))]">{selectedAgent.state.hygiene | 0}</span></div>
-                        <div className="flex justify-between px-1"><span>😴 Boredom</span><span className="font-mono text-[hsl(var(--holo-cyan))]">{selectedAgent.state.boredom | 0}</span></div>
+                        <div className="flex justify-between px-1"><span>⚡ Energy</span><span className="font-mono text-[hsl(var(--holo-cyan))]">{(selectedAgent.state.energy || 0) | 0}</span></div>
+                        <div className="flex justify-between px-1"><span>🍔 Hunger</span><span className="font-mono text-[hsl(var(--holo-cyan))]">{(selectedAgent.state.hunger || 0) | 0}</span></div>
+                        <div className="flex justify-between px-1"><span>🛁 Hygiene</span><span className="font-mono text-[hsl(var(--holo-cyan))]">{(selectedAgent.state.hygiene || 0) | 0}</span></div>
+                        <div className="flex justify-between px-1"><span>😴 Boredom</span><span className="font-mono text-[hsl(var(--holo-cyan))]">{(selectedAgent.state.boredom || 0) | 0}</span></div>
                       </div>
                     </div>
                   )}
@@ -507,34 +619,34 @@ export function VisualReplay() {
             <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
               <div className="flex items-center justify-between bg-[#1e1e35] p-4 rounded-2xl shadow-sm border border-gray-800">
                 <span className="font-medium text-gray-300">Final Compatibility Score</span>
-                <span className={`text-3xl font-bold ${reportData.finalScore >= 70 ? 'text-green-400' : 'text-red-400'}`}>
-                  {reportData.finalScore}%
+                <span className={`text-3xl font-bold ${(reportData?.finalScore ?? 0) >= 70 ? 'text-green-400' : 'text-red-400'}`}>
+                  {reportData?.finalScore ?? 0}%
                 </span>
               </div>
-              
-              {reportData.conflicts.length > 0 && (
+
+              {reportData?.conflicts && reportData.conflicts.length > 0 && (
                 <div className="bg-red-950/20 p-4 rounded-2xl border border-red-900/30">
                   <h4 className="text-red-400 font-semibold mb-2">Conflicts Detected</h4>
                   <ul className="list-disc pl-5 text-sm space-y-1 text-gray-300">
-                    {reportData.conflicts.map((c,i) => <li key={i}>{c}</li>)}
+                    {reportData.conflicts.map((c, i) => <li key={i}>{c}</li>)}
                   </ul>
                 </div>
               )}
-              
-              {reportData.goodMoments.length > 0 && (
+
+              {reportData?.goodMoments && reportData.goodMoments.length > 0 && (
                 <div className="bg-green-950/20 p-4 rounded-2xl border border-green-900/30">
                   <h4 className="text-green-400 font-semibold mb-2">Good Moments</h4>
                   <ul className="list-disc pl-5 text-sm space-y-1 text-gray-300">
-                    {reportData.goodMoments.map((c,i) => <li key={i}>{c}</li>)}
+                    {reportData.goodMoments.map((c, i) => <li key={i}>{c}</li>)}
                   </ul>
                 </div>
               )}
-              
-              {reportData.recommendations.length > 0 && (
+
+              {reportData?.recommendations && reportData.recommendations.length > 0 && (
                 <div className="bg-[#1e1e35]/50 p-4 rounded-2xl border border-[hsl(var(--holo-cyan)/0.2)]">
                   <h4 className="text-[hsl(var(--holo-cyan))] font-semibold mb-2">Recommendations</h4>
                   <ul className="list-disc pl-5 text-sm space-y-1 text-gray-300">
-                    {reportData.recommendations.map((c,i) => <li key={i}>{c}</li>)}
+                    {reportData.recommendations.map((c, i) => <li key={i}>{c}</li>)}
                   </ul>
                 </div>
               )}
@@ -542,6 +654,132 @@ export function VisualReplay() {
           )}
           <DialogFooter>
             <Button onClick={() => setReportData(null)} variant="outline" className="w-full rounded-2xl border-gray-700 hover:bg-gray-800">
+              Close Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Life Simulation Final Report Modal */}
+      <Dialog open={!!lifeSimReport} onOpenChange={(o) => !o && setLifeSimReport(null)}>
+        <DialogContent className="sm:max-w-xl border-[hsl(var(--holo-cyan)/0.3)] bg-[#060610] text-white rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-[hsl(var(--holo-cyan))] text-xl font-semibold flex items-center gap-2">
+              <Bot className="h-5 w-5" />
+              Life Simulation Report
+            </DialogTitle>
+          </DialogHeader>
+          {lifeSimReport && lifeSimReport.satisfaction_summary && (
+            <div className="space-y-6 py-4 max-h-[75vh] overflow-y-auto pr-3 custom-scrollbar">
+              
+              {/* Header Score & Status */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-[#1e1e35] p-5 rounded-2xl shadow-sm border border-gray-800 flex flex-col justify-center relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-10">
+                    <Target className="w-16 h-16" />
+                  </div>
+                  <span className="font-medium text-gray-400 text-sm mb-1 uppercase tracking-wider">Final Satisfaction</span>
+                  <div className="flex items-baseline gap-2">
+                    <span className={`text-4xl font-bold ${(lifeSimReport?.satisfaction_summary?.final_score ?? 0) >= 0.70 ? 'text-green-400' : (lifeSimReport?.satisfaction_summary?.final_score ?? 0) >= 0.50 ? 'text-amber-400' : 'text-red-400'}`}>
+                      {Math.round((lifeSimReport?.satisfaction_summary?.final_score ?? 0) * 100)}%
+                    </span>
+                    <span className="text-sm font-medium text-gray-400">
+                      (Net: {((lifeSimReport?.satisfaction_summary?.net_change ?? 0) * 100) > 0 ? '+' : ''}{Math.round((lifeSimReport?.satisfaction_summary?.net_change ?? 0) * 100)}%)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-[#1e1e35] p-5 rounded-2xl shadow-sm border border-[hsl(var(--holo-cyan)/0.3)] flex flex-col justify-center">
+                  <span className="font-medium text-[hsl(var(--holo-cyan))] text-sm mb-1 uppercase tracking-wider">Overall Status</span>
+                  <p className="text-xl font-bold text-white capitalize">{lifeSimReport?.satisfaction_summary?.satisfaction_label || "Completed"}</p>
+                </div>
+              </div>
+
+              {/* Event Breakdown Grid */}
+              <div>
+                <h4 className="text-gray-300 font-semibold mb-3 flex items-center gap-2 text-sm uppercase tracking-wider">
+                  <Activity className="h-4 w-4" /> Activity Breakdown
+                </h4>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-emerald-950/20 border border-emerald-900/30 p-4 rounded-2xl flex flex-col items-center justify-center text-center">
+                    <CheckCircle className="h-6 w-6 text-emerald-500 mb-2" />
+                    <span className="text-2xl font-bold text-emerald-400">{lifeSimReport.satisfaction_summary.success_events || 0}</span>
+                    <span className="text-xs text-gray-400 mt-1 uppercase">Smooth</span>
+                  </div>
+                  <div className="bg-amber-950/20 border border-amber-900/30 p-4 rounded-2xl flex flex-col items-center justify-center text-center">
+                    <AlertCircle className="h-6 w-6 text-amber-500 mb-2" />
+                    <span className="text-2xl font-bold text-amber-400">{lifeSimReport.satisfaction_summary.friction_events || 0}</span>
+                    <span className="text-xs text-gray-400 mt-1 uppercase">Friction</span>
+                  </div>
+                  <div className="bg-red-950/20 border border-red-900/30 p-4 rounded-2xl flex flex-col items-center justify-center text-center">
+                    <XCircle className="h-6 w-6 text-red-500 mb-2" />
+                    <span className="text-2xl font-bold text-red-400">{lifeSimReport.satisfaction_summary.blocked_events || 0}</span>
+                    <span className="text-xs text-gray-400 mt-1 uppercase">Blocked</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Satisfaction Trajectory Chart */}
+              {lifeSimReport.satisfaction_summary.trajectory && Array.isArray(lifeSimReport.satisfaction_summary.trajectory) && lifeSimReport.satisfaction_summary.trajectory.length > 0 && (
+                <div className="bg-[#151522] p-4 rounded-2xl border border-gray-800">
+                  <h4 className="text-gray-300 font-semibold mb-4 text-sm uppercase tracking-wider flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4" /> Satisfaction Trajectory
+                  </h4>
+                  <div className="h-48 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={lifeSimReport.satisfaction_summary.trajectory.map((val: number, i: number) => ({ tick: `T${i}`, score: Math.round(val * 100) }))}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" vertical={false} />
+                        <XAxis dataKey="tick" stroke="#6b7280" fontSize={10} tickMargin={8} minTickGap={15} />
+                        <YAxis stroke="#6b7280" fontSize={10} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={(v) => `${v}%`} />
+                        <RechartsTooltip 
+                          contentStyle={{ backgroundColor: '#1e1e35', borderColor: '#374151', borderRadius: '12px', fontSize: '12px' }}
+                          itemStyle={{ color: 'hsl(var(--holo-cyan))' }}
+                          formatter={(value: number) => [`${value}%`, 'Score']}
+                          labelStyle={{ color: '#9ca3af', marginBottom: '4px' }}
+                        />
+                        <ReferenceLine y={50} stroke="#4b5563" strokeDasharray="3 3" />
+                        <Line type="monotone" dataKey="score" stroke="hsl(var(--holo-cyan))" strokeWidth={3} dot={false} activeDot={{ r: 6, fill: "hsl(var(--holo-cyan))", stroke: "#fff" }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* AI Reflection */}
+              {lifeSimReport?.reflection && (
+                <div className="bg-gradient-to-br from-[#1e1e35] to-[#151525] p-5 rounded-2xl border border-[hsl(var(--holo-cyan)/0.3)] shadow-[0_0_20px_rgba(0,255,255,0.05)]">
+                  <h4 className="text-[hsl(var(--holo-cyan))] font-semibold mb-3 flex items-center gap-2">
+                    <Bot className="h-5 w-5" /> AI Persona Reflection
+                  </h4>
+                  <p className="text-gray-300 text-sm leading-relaxed italic border-l-4 border-[hsl(var(--holo-cyan)/0.5)] pl-4">"{String(lifeSimReport.reflection)}"</p>
+                </div>
+              )}
+
+              {/* Key Pain Points */}
+              {lifeSimReport?.pain_points && Array.isArray(lifeSimReport.pain_points) && lifeSimReport.pain_points.length > 0 && (
+                <div>
+                  <h4 className="text-red-400 font-semibold mb-3 flex items-center gap-2 text-sm uppercase tracking-wider">
+                    <TrendingDown className="h-4 w-4" /> Top Pain Points
+                  </h4>
+                  <div className="space-y-2">
+                    {lifeSimReport.pain_points.map((p: any, i: number) => (
+                      <div key={i} className="bg-red-950/20 p-3 rounded-xl border border-red-900/30 flex items-start gap-3">
+                        <div className="bg-red-900/40 text-red-300 font-mono text-[10px] px-2 py-1 rounded mt-0.5 whitespace-nowrap">
+                          {p?.time_of_day || "--:--"}
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-200 text-sm">{p?.action || p?.action_name || "Action"}</p>
+                          <p className="text-red-400 text-xs mt-0.5">Felt {p?.emotion || "neutral"}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setLifeSimReport(null)} variant="outline" className="w-full rounded-2xl border-gray-700 hover:bg-gray-800 text-white">
               Close Report
             </Button>
           </DialogFooter>

@@ -23,8 +23,8 @@ class CustomUserCreateSerializer(DjoserUserCreateSerializer):
 
     class Meta(DjoserUserCreateSerializer.Meta):
         model = CustomUser
-        # re_password is provided by DjoserUserCreateSerializer already
-        fields = ("email", "first_name", "last_name", "re_password", "password", "role")
+        # re_password is not needed because USER_CREATE_PASSWORD_RETYPE is False
+        fields = ("email", "first_name", "last_name", "password", "role")
 
     def perform_create(self, validated_data):
         """Djoser calls this with **validated_data; inject username=email."""

@@ -280,6 +280,7 @@ class LifeSimEngine:
                 progress_callback(
                     int(tick / request.num_ticks * 100),
                     f"Simulating {time_of_day}...",
+                    narrated,
                 )
 
         try:

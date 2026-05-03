@@ -28,4 +28,5 @@ urlpatterns = [
     path("api/v1/", include("users.urls")),
     path("", include("room_sim.urls")),
     path("api/v1/social-sim/", include("social_sim.urls")),
+    path("api/v1/", include("personality.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

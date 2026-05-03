@@ -1,0 +1,226 @@
+{
+  "address_input": "36.8065,10.1815",
+  "resolved_address": "36.8065,10.1815",
+  "lat": 36.8065,
+  "lon": 10.1815,
+  "noise_level": 1.0,
+  "noise_label": "Extremely Noisy",
+  "top_sources": [
+    "industrial (industrial)",
+    "ساحة الجمهورية (station)",
+    "الشركة التونسية للكهرباء والغاز (ذهاب) (bus_station)"
+  ],
+  "geo_sources": [
+    {
+      "type": "industrial",
+      "name": "industrial",
+      "lat": 36.8066995,
+      "lon": 10.1818229,
+      "distance_m": 36.31157389715797,
+      "weight": 0.8,
+      "count": 1
+    },
+    {
+      "type": "station",
+      "name": "ساحة الجمهورية",
+      "lat": 36.8064986,
+      "lon": 10.1808267,
+      "distance_m": 59.94390575730376,
+      "weight": 0.65,
+      "count": 1
+    },
+    {
+      "type": "bus_station",
+      "name": "الشركة التونسية للكهرباء والغاز (ذهاب)",
+      "lat": 36.8054996,
+      "lon": 10.1819978,
+      "distance_m": 119.74307328366251,
+      "weight": 0.7,
+      "count": 1
+    },
+    {
+      "type": "sports_centre",
+      "name": "Panda club",
+      "lat": 36.807237,
+      "lon": 10.181258,
+      "distance_m": 84.73547990093692,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "شارع غانا",
+      "lat": 36.8059374,
+      "lon": 10.1807793,
+      "distance_m": 89.61332883645683,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "شارع غانا",
+      "lat": 36.8063399,
+      "lon": 10.1825855,
+      "distance_m": 98.26784500656234,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "شارع الحرّيّة",
+      "lat": 36.8070858,
+      "lon": 10.180241,
+      "distance_m": 129.64054764490226,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "شارع الحرّيّة",
+      "lat": 36.8057185,
+      "lon": 10.1802443,
+      "distance_m": 141.59650048940838,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "شارع الحبيب ثامر",
+      "lat": 36.8056338,
+      "lon": 10.1802187,
+      "distance_m": 149.2981733748686,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "supermarket",
+      "name": "MG Maxi",
+      "lat": 36.806353,
+      "lon": 10.181558,
+      "distance_m": 17.141893111281032,
+      "weight": 0.35,
+      "count": 1
+    },
+    {
+      "type": "fast_food",
+      "name": "Tej El Madina",
+      "lat": 36.8062136,
+      "lon": 10.1820558,
+      "distance_m": 58.84496702966179,
+      "weight": 0.4,
+      "count": 1
+    },
+    {
+      "type": "place_of_worship",
+      "name": "place_of_worship",
+      "lat": 36.8053174,
+      "lon": 10.1811387,
+      "distance_m": 135.37619463504922,
+      "weight": 0.5,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "secondary",
+      "lat": 36.8081908,
+      "lon": 10.1814643,
+      "distance_m": 188.03524521817627,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "secondary",
+      "lat": 36.8081784,
+      "lon": 10.1812248,
+      "distance_m": 188.2309197499663,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "place_of_worship",
+      "name": "جامع نهج مرسيليا",
+      "lat": 36.8052826,
+      "lon": 10.181076,
+      "distance_m": 140.5335018504991,
+      "weight": 0.5,
+      "count": 1
+    },
+    {
+      "type": "industrial",
+      "name": "industrial",
+      "lat": 36.8079962,
+      "lon": 10.1837465,
+      "distance_m": 260.1542650369937,
+      "weight": 0.8,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "شارع جان جوريس",
+      "lat": 36.8048505,
+      "lon": 10.1825697,
+      "distance_m": 206.66726010405122,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "نهج القرش الأكبر",
+      "lat": 36.8083577,
+      "lon": 10.1813059,
+      "distance_m": 207.2883579548402,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "نهج فلسطين",
+      "lat": 36.8083554,
+      "lon": 10.1810658,
+      "distance_m": 209.90131143362058,
+      "weight": 0.6,
+      "count": 1
+    },
+    {
+      "type": "secondary",
+      "name": "شارع الحبيب ثامر",
+      "lat": 36.8050004,
+      "lon": 10.1800127,
+      "distance_m": 212.92873641662692,
+      "weight": 0.6,
+      "count": 1
+    }
+  ],
+  "breakdown": {
+    "landuse": {
+      "count": 5,
+      "total_contribution": 1.2422594640632598
+    },
+    "public_transport": {
+      "count": 1,
+      "total_contribution": 0.5027498047346326
+    },
+    "amenity": {
+      "count": 59,
+      "total_contribution": 6.572455576301162
+    },
+    "leisure": {
+      "count": 6,
+      "total_contribution": 0.9042916938817636
+    },
+    "highway": {
+      "count": 258,
+      "total_contribution": 14.239072081642897
+    },
+    "shop": {
+      "count": 4,
+      "total_contribution": 0.6122373727766612
+    }
+  },
+  "feature_count": 333,
+  "radius_m": 500,
+  "from_cache": false,
+  "fallback_used": false,
+  "fallback_reason": ""
+}

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, useMapEvents, CircleMarker } from "react-leaflet";
 import L from "leaflet";
 import { useApp } from "@/shared/store/useApp";
+import { useSimStore } from "@/shared/store/useSimStore";
 import { pinService } from "@/services/mockApi";
 import { overpassApi } from "@/services/overpassApi";
 import { socialApi } from "@/services/socialApi";
@@ -49,6 +50,148 @@ function poiIcon(type: PoiType) {
     </div>
   `;
   return L.divIcon({ html, className: "poi-pin", iconSize: [24, 24], iconAnchor: [12, 12] });
+}
+
+// ── Noise source type → color ─────────────────────────────────────────────────
+function noiseTypeColor(type: string): string {
+  if (["nightclub", "bar", "pub", "stadium"].includes(type)) return "#ef4444";    // red
+  if (["motorway", "trunk", "primary"].includes(type)) return "#f97316";          // orange
+  if (["secondary", "bus_station", "railway"].includes(type)) return "#eab308";   // yellow
+  if (["construction", "industrial"].includes(type)) return "#a855f7";            // purple
+  return "#fb923c";                                                                // default orange
+}
+
+// ── POI category → color ─────────────────────────────────────────────────────
+function poiCategoryColor(cat: string): string {
+  const map: Record<string, string> = {
+    hospital: "#f87171", clinic: "#f87171", pharmacy: "#fb923c",
+    supermarket: "#4ade80", bakery: "#86efac",
+    cafe: "#c084fc", restaurant: "#e879f9", bar: "#d946ef",
+    bus_stop: "#60a5fa", metro_station: "#3b82f6", tram_stop: "#93c5fd",
+    school: "#fbbf24", university: "#f59e0b",
+    park: "#34d399", gym: "#2dd4bf", library: "#a78bfa",
+    bank: "#94a3b8", atm: "#64748b",
+  };
+  return map[cat] ?? "#94a3b8";
+}
+
+// ── Persona dot icon (animated pulsing blue dot) ──────────────────────────────
+function personaIcon() {
+  const html = `
+    <div style="
+      width: 20px; height: 20px; border-radius: 50%;
+      background: hsl(220 90% 60%);
+      border: 3px solid white;
+      box-shadow: 0 0 0 0 hsl(220 90% 60% / 0.7);
+      animation: personaPulse 1.5s ease-out infinite;
+    "></div>
+    <style>
+      @keyframes personaPulse {
+        0% { box-shadow: 0 0 0 0 hsl(220 90% 60% / 0.7); }
+        70% { box-shadow: 0 0 0 12px hsl(220 90% 60% / 0); }
+        100% { box-shadow: 0 0 0 0 hsl(220 90% 60% / 0); }
+      }
+    </style>
+  `;
+  return L.divIcon({ html, className: "persona-dot", iconSize: [20, 20], iconAnchor: [10, 10] });
+}
+
+// ── Simulation overlay (noise dots, POI dots, persona dot) ────────────────────
+function SimOverlayLayer() {
+  const { noiseSources, neighbourhoodPois, personaTargetPosition, showSimOverlay } = useSimStore();
+  const setPersonaPosition = useSimStore((s) => s.setPersonaPosition);
+  const personaPositionRef = useRef<{ lat: number; lon: number } | null>(null);
+
+  // Animate persona dot toward target position
+  useEffect(() => {
+    if (!personaTargetPosition) return;
+    const steps = 20;
+    const interval = 50; // ms per step
+    let step = 0;
+    const from = personaPositionRef.current ?? personaTargetPosition;
+    const latDiff = (personaTargetPosition.lat - from.lat) / steps;
+    const lonDiff = (personaTargetPosition.lon - from.lon) / steps;
+    const timer = setInterval(() => {
+      step++;
+      const next = { lat: from.lat + latDiff * step, lon: from.lon + lonDiff * step };
+      personaPositionRef.current = next;
+      setPersonaPosition(next);
+      if (step >= steps) clearInterval(timer);
+    }, interval);
+    return () => clearInterval(timer);
+  }, [personaTargetPosition, setPersonaPosition]);
+
+  const personaPos = useSimStore((s) => s.personaPosition);
+
+  if (!showSimOverlay && noiseSources.length === 0 && !personaPos) return null;
+
+  return (
+    <>
+      {/* Noise source dots */}
+      {showSimOverlay && noiseSources.map((src, i) => {
+        if (typeof src.lat !== "number" || typeof src.lon !== "number" || isNaN(src.lat) || isNaN(src.lon)) return null;
+        return (
+          <CircleMarker
+            key={`noise-${i}`}
+            center={[src.lat, src.lon]}
+            radius={Math.max(5, (src.weight || 0) * 18)}
+            pathOptions={{
+              color: noiseTypeColor(src.type),
+              fillColor: noiseTypeColor(src.type),
+              fillOpacity: 0.55,
+              weight: 1.5,
+            }}
+          >
+            <Tooltip direction="top">
+              <span className="text-xs">
+                🔊 <strong>{src.name || src.type}</strong><br />
+                {Math.round(src.distance_m || 0)}m away · noise weight {Math.round((src.weight || 0) * 100)}%
+              </span>
+            </Tooltip>
+          </CircleMarker>
+        );
+      })}
+
+      {/* Neighbourhood POI dots */}
+      {showSimOverlay && neighbourhoodPois.map((poi, i) => {
+        if (typeof poi.lat !== "number" || typeof poi.lon !== "number" || isNaN(poi.lat) || isNaN(poi.lon)) return null;
+        return (
+          <CircleMarker
+            key={`poi-${i}`}
+            center={[poi.lat, poi.lon]}
+            radius={7}
+            pathOptions={{
+              color: poiCategoryColor(poi.category),
+              fillColor: poiCategoryColor(poi.category),
+              fillOpacity: 0.7,
+              weight: 1.5,
+            }}
+          >
+            <Tooltip direction="top">
+              <span className="text-xs">
+                <strong>{poi.name}</strong><br />
+                <span className="capitalize">{poi.category.replace(/_/g, " ")}</span>
+                {poi.distance_m != null && ` · ${Math.round(poi.distance_m)}m`}
+              </span>
+            </Tooltip>
+          </CircleMarker>
+        );
+      })}
+
+      {/* Animated persona dot */}
+      {personaPos && typeof personaPos.lat === "number" && typeof personaPos.lon === "number" && !isNaN(personaPos.lat) && !isNaN(personaPos.lon) && (
+        <Marker
+          position={[personaPos.lat, personaPos.lon]}
+          icon={personaIcon()}
+          zIndexOffset={1000}
+        >
+          <Tooltip direction="top" permanent={false}>
+            <span className="text-xs">🧑 Simulated persona</span>
+          </Tooltip>
+        </Marker>
+      )}
+    </>
+  );
 }
 
 function POIFetcher({ onFetch }: { onFetch: (pois: POINode[]) => void }) {
@@ -200,6 +343,7 @@ export function MapShell() {
       <MapEffects />
       <PinAdder />
       <POIFetcher onFetch={setPois} />
+      <SimOverlayLayer />
       
       {/* Real POIs from API */}
       {pois.map((p) => (

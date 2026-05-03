@@ -12,9 +12,10 @@ interface Props {
   onNext?: () => void;
   nextDisabled?: boolean;
   nextLabel?: string;
+  hideNext?: boolean;
 }
 
-export function OnboardingStep({ step, total, question, hint, children, onBack, onNext, nextDisabled, nextLabel = "Next" }: Props) {
+export function OnboardingStep({ step, total, question, hint, children, onBack, onNext, nextDisabled, nextLabel = "Next", hideNext }: Props) {
   return (
     <main
       role="main"
@@ -45,9 +46,11 @@ export function OnboardingStep({ step, total, question, hint, children, onBack, 
         <Button variant="ghost" onClick={onBack} disabled={!onBack} className="rounded-full">
           ← Back
         </Button>
-        <Button onClick={onNext} disabled={nextDisabled} size="lg" className="rounded-full px-10 shadow-sims">
-          {nextLabel} →
-        </Button>
+        {!hideNext && (
+          <Button onClick={onNext} disabled={nextDisabled} size="lg" className="rounded-full px-10 shadow-sims">
+            {nextLabel} →
+          </Button>
+        )}
       </footer>
     </main>
   );

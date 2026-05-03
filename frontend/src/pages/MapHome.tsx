@@ -5,7 +5,6 @@ import { PropertyDrawer } from "@/features/property-drawer/PropertyDrawer";
 import { ModuleDashboard } from "@/features/dashboard/ModuleDashboard";
 import { PersonaBuilder } from "@/features/persona/PersonaBuilder";
 import { ApartmentConfigurator } from "@/features/apartment/ApartmentConfigurator";
-import { SimulationRunner } from "@/features/simulation/SimulationRunner";
 import { VisualReplay } from "@/features/replay/VisualReplay";
 import { Reports } from "@/features/reports/Reports";
 import { MaterialAgent } from "@/features/material-agent/MaterialAgent";
@@ -24,12 +23,12 @@ export default function MapHome() {
       {activeOverlay === "module-dashboard" && <ModuleDashboard />}
       {activeOverlay === "persona-builder" && <PersonaBuilder />}
       {activeOverlay === "apartment-configurator" && <ApartmentConfigurator />}
-      {activeOverlay === "simulation-runner" && <SimulationRunner />}
       {activeOverlay === "visual-replay" && <VisualReplay />}
       {activeOverlay === "reports" && <Reports />}
       {activeOverlay === "material-agent" && <MaterialAgent />}
       {activeOverlay === "admin-assistant" && <AdminAssistant />}
       {activeOverlay === "neighborhood-intel" && <NeighborhoodIntel />}
+      {activeOverlay === "apt-configurator" && <ApartmentConfigurator />}
     </div>
   );
 }

@@ -47,11 +47,30 @@ class SocialSimRun(models.Model):
     apartment_layout = models.JSONField(null=True, blank=True)
     environment_state = models.JSONField(null=True, blank=True)
 
+    # Life sim context (lat/lon of the property)
+    property_lat = models.FloatField(null=True, blank=True)
+    property_lon = models.FloatField(null=True, blank=True)
+    simulation_month = models.IntegerField(null=True, blank=True)  # 1-12
+    commute_destination = models.CharField(max_length=255, blank=True)
+    num_ticks = models.IntegerField(default=24)
+
     # Output payloads
     result = models.JSONField(null=True, blank=True)       # VisualSimulationReplay
     mediation_rules = models.JSONField(null=True, blank=True)  # list[str]
     mediation_summary = models.TextField(blank=True, default="")
     compatibility_score = models.FloatField(null=True, blank=True)
+
+    # Map overlay data (populated before sim starts, so map can show them immediately)
+    noise_sources_geo = models.JSONField(null=True, blank=True)   # [{type, lat, lon, count, weight}]
+    neighbourhood_pois_geo = models.JSONField(null=True, blank=True)  # [{category, name, lat, lon, distance_m}]
+
+    # Partial streaming (populated every 4 ticks during simulation)
+    sim_events_partial = models.JSONField(null=True, blank=True)  # list of NarratedEvent dicts
+
+    # Cached assessment data fed into the EILS engine
+    noise_assessment_data = models.JSONField(null=True, blank=True)
+    thermal_assessment_data = models.JSONField(null=True, blank=True)
+    neighbourhood_profile_data = models.JSONField(null=True, blank=True)
 
     error = models.TextField(blank=True, default="")
 

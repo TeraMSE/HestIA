@@ -53,4 +53,16 @@ urlpatterns = [
         views.ThermalAssessmentView.as_view(),
         name="social-sim-thermal-assess",
     ),
+
+    # ── HestIA-LS: Life Simulation ────────────────────────────────────────────
+    path(
+        "life-sim/start/",
+        views.LifeSimStartView.as_view(),
+        name="social-sim-life-sim-start",
+    ),
+    path(
+        "life-sim/<uuid:run_id>/",
+        views.LifeSimStatusView.as_view(),
+        name="social-sim-life-sim-status",
+    ),
 ]

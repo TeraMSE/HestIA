@@ -58,11 +58,23 @@ class NoiseContribution(BaseModel):
     label: str
 
 
+class GeoNoiseSource(BaseModel):
+    """A geo-located noise source for map overlay."""
+    type: str          # feature_type (e.g. nightclub, primary, bus_station)
+    name: str          # OSM name or type label
+    lat: float
+    lon: float
+    distance_m: float
+    weight: float      # noise contribution weight (0-1)
+    count: int = 1     # number of features of this type nearby
+
+
 class NoiseScoreResult(BaseModel):
     noise_level: float
     label: str
     contributions: List[NoiseContribution]
     top_sources: List[str]
+    geo_sources: List[GeoNoiseSource] = []  # top features with lat/lon for map
     breakdown: Dict[str, Dict[str, float | int]]
     raw_score: float
     feature_count: int
@@ -130,8 +142,11 @@ class NoiseScorer:
 
             raw_score = 0.0
             for index, item in enumerate(contributions):
-                diminishing_factor = 1.0 / (1.0 + index * 0.15)
+                diminishing_factor = 0.8 ** index
                 raw_score += item.contribution * diminishing_factor
+                
+            # Max possible raw_score is ~4.0-5.0. Divide by 5.0 to give a sensible 0-1 range
+            raw_score = raw_score / 5.0
 
             noise_level = min(1.0, raw_score)
 
@@ -150,11 +165,31 @@ class NoiseScorer:
 
             top_3 = [item.label for item in contributions[:3]]
 
+            # Build geo_sources — top 20 unique-position features with real lat/lon
+            seen_positions: set[tuple[float, float]] = set()
+            geo_sources: List[GeoNoiseSource] = []
+            for item in contributions[:40]:  # check top-40 contributions
+                pos_key = (round(item.feature.lat, 5), round(item.feature.lon, 5))
+                if pos_key in seen_positions:
+                    continue
+                seen_positions.add(pos_key)
+                geo_sources.append(GeoNoiseSource(
+                    type=item.feature.feature_type,
+                    name=item.feature.name or item.feature.feature_type,
+                    lat=item.feature.lat,
+                    lon=item.feature.lon,
+                    distance_m=item.feature.distance_m,
+                    weight=round(item.base_weight, 3),
+                ))
+                if len(geo_sources) >= 20:
+                    break
+
             return NoiseScoreResult(
                 noise_level=noise_level,
                 label=self._get_label(noise_level),
                 contributions=contributions,
                 top_sources=top_3,
+                geo_sources=geo_sources,
                 breakdown=breakdown,
                 raw_score=raw_score,
                 feature_count=len(contributions),

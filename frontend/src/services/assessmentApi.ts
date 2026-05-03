@@ -46,6 +46,10 @@ export interface NoiseAssessPayload {
 
 export interface WalkabilityProfile {
   overall_score: number;
+  label?: string;
+  dimension_scores?: Record<string, number>;
+  top_assets?: string[];
+  top_gaps?: string[];
   poi_summary: Record<string, number>;
   closest_by_category: Record<string, { name: string; distance_m: number } | null>;
 }
@@ -75,8 +79,9 @@ export interface NeighborhoodProfile {
   lon: number;
   radius_m: number;
   walkability: WalkabilityProfile;
-  transport: TransportProfile;
+  transport: TransportProfile & { transport_types_available?: string[], total_lines_count?: number };
   emergency_accessibility: EmergencyAccessibility;
+  walk_times?: Record<string, number>;
   poi_details: Record<string, Array<{ name: string; distance_m: number; lat: number; lon: number }>>;
   overall_neighborhood_score: number;
   neighborhood_summary: string;
@@ -90,6 +95,7 @@ export interface NeighborhoodPayload {
   commute_destination?: string;
   radius_m?: number;
   noise_assessment?: Record<string, unknown>;
+  force_refresh?: boolean;
 }
 
 // ── Thermal ───────────────────────────────────────────────────────────────
@@ -108,6 +114,17 @@ export interface ClimateSummary {
   coldest_month: string;
   coldest_month_avg: number;
   annual_avg: number;
+  climate_type?: string;
+}
+
+export interface MonthlyEstimate {
+  month: number;
+  month_name: string;
+  outdoor_mean: number;
+  indoor_mean: number;
+  indoor_swing: number;
+  overheating_risk: string;
+  cold_risk: string;
 }
 
 export interface ThermalAssessmentResult {
@@ -123,6 +140,7 @@ export interface ThermalAssessmentResult {
   climate_summary: ClimateSummary;
   monthly_indoor_temps: Record<string, number>;
   monthly_outdoor_temps: Record<string, number>;
+  monthly_estimates?: MonthlyEstimate[];
   recommendations: string[];
   assessed_at: string;
 }
@@ -139,6 +157,8 @@ export interface ThermalAssessPayload {
   has_balcony: boolean;
   has_windows: boolean;
   address?: string;
+  simulation_month?: number;
+  force_refresh?: boolean;
 }
 
 // ── Compatibility ─────────────────────────────────────────────────────────

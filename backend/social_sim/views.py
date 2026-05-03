@@ -348,6 +348,9 @@ class NoiseAssessmentView(APIView):
                 for s in top_sources
             ]
 
+            # Forward geo_sources (already [{type, name, lat, lon, distance_m, weight}])
+            geo_sources = raw.get("geo_sources") or []
+
             return Response({
                 "address": raw.get("resolved_address"),
                 "lat": raw.get("lat"),
@@ -357,6 +360,7 @@ class NoiseAssessmentView(APIView):
                 "noise_score": noise_score,
                 "noise_category": noise_category,
                 "sources": sources,
+                "geo_sources": geo_sources,
                 "dominant_source": sources[0]["type"] if sources else None,
                 "assessment_summary": (
                     f"{'Fallback estimate — ' if raw.get('fallback_used') else ''}"
@@ -530,6 +534,21 @@ class NeighborhoodProfileView(APIView):
                 full_profile=profile_payload,
             )
 
+            # Compute overall score and summary for frontend
+            w_score = float(walkability.get("overall_score", 0.0) or 0.0)
+            m_score = float(transport.get("mobility_score", 0.0) or 0.0)
+            e_score = float(emergency.get("score", 0.0) or 0.0)
+            overall_score = round((w_score * 0.5 + m_score * 0.3 + e_score * 0.2) * 100)
+            
+            summary = "Average neighborhood with basic amenities."
+            if overall_score >= 75:
+                summary = "Highly walkable and well-connected neighborhood."
+            elif overall_score < 40:
+                summary = "Car-dependent neighborhood with limited transit."
+                
+            profile_payload["overall_neighborhood_score"] = overall_score
+            profile_payload["neighborhood_summary"] = summary
+
             return Response(profile_payload, status=status.HTTP_200_OK)
         except Exception as exc:  # noqa: BLE001
             return Response(
@@ -680,3 +699,153 @@ class ThermalAssessmentView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HestIA-LS: Life Simulation — Start + Status
+# ──────────────────────────────────────────────────────────────────────────────
+
+class LifeSimStartView(APIView):
+    """
+    POST /api/v1/social-sim/life-sim/start/
+
+    Starts a solo EILS life simulation for the authenticated user.
+    Automatically resolves the user's persona from their UserProfile traits.
+    Runs noise + thermal + neighbourhood assessments from the pin coordinates.
+
+    Body:
+      {
+        "lat": 36.8065, "lon": 10.1815,        // from pin (required)
+        "property_id": "42",                    // optional link
+        "simulation_month": 7,                  // 1-12, defaults to current month
+        "commute_destination": "...",           // optional
+        "num_ticks": 24                         // 6-48
+      }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request: Request) -> Response:
+        import calendar
+        from datetime import datetime
+
+        from social_sim.engine.persona import Persona
+        from social_sim.engine.layout_builder import build_default_layout
+        from social_sim.tasks import start_life_sim_thread
+
+        body = request.data or {}
+        lat = body.get("lat")
+        lon = body.get("lon")
+        if lat is None or lon is None:
+            return Response(
+                {"detail": "lat and lon are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            lat_f = float(lat)
+            lon_f = float(lon)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "lat and lon must be numeric."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        simulation_month = body.get("simulation_month")
+        if simulation_month is not None:
+            try:
+                simulation_month = max(1, min(12, int(simulation_month)))
+            except (TypeError, ValueError):
+                simulation_month = datetime.now().month
+        else:
+            simulation_month = datetime.now().month
+
+        try:
+            num_ticks = max(6, min(48, int(body.get("num_ticks", 24))))
+        except (TypeError, ValueError):
+            num_ticks = 24
+
+        commute_destination = str(body.get("commute_destination", "")).strip()
+        property_id = str(body.get("property_id", "")).strip() or None
+
+        # Build persona from the authenticated user's profile traits
+        user = request.user
+        traits = {
+            "introversion": 1.0 - (float(getattr(user, "noise_tolerance", 50) or 50) / 100.0),
+            "noise_sensitivity": 1.0 - (float(getattr(user, "noise_tolerance", 50) or 50) / 100.0),
+            "cleanliness": float(getattr(user, "cleanliness", 50) or 50) / 100.0,
+            "thermal_sensitivity": float(getattr(user, "thermal_sensitivity", 50) or 50) / 100.0,
+            "early_riser": getattr(user, "daily_schedule", "flexible") == "early_bird",
+            "smoker": bool(getattr(user, "smoker", False)),
+        }
+        persona = Persona.from_traits(
+            subject_id=str(user.id),
+            name=getattr(user, "first_name", None) or user.email.split("@")[0],
+            traits=traits,
+        )
+
+        layout = build_default_layout()
+
+        run = SocialSimRun.objects.create(
+            user=user,
+            property_id=property_id,
+            status="queued",
+            progress=0,
+            persona_a=persona.to_dict(),
+            apartment_layout=layout,
+            property_lat=lat_f,
+            property_lon=lon_f,
+            simulation_month=simulation_month,
+            commute_destination=commute_destination,
+            num_ticks=num_ticks,
+        )
+
+        start_life_sim_thread(str(run.id))
+
+        return Response(
+            {
+                "run_id": str(run.id),
+                "status": run.status,
+                "simulation_month": simulation_month,
+                "month_name": calendar.month_name[simulation_month],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class LifeSimStatusView(APIView):
+    """
+    GET /api/v1/social-sim/life-sim/{run_id}/
+
+    Returns status, progress, partial events, and geo overlay data.
+    Safe to poll every 3 seconds while status == 'running'.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request, run_id: str) -> Response:
+        try:
+            run = SocialSimRun.objects.get(pk=run_id, user=request.user)
+        except SocialSimRun.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(
+            {
+                "run_id": str(run.id),
+                "status": run.status,
+                "progress": run.progress,
+                "simulation_month": run.simulation_month,
+                "commute_destination": run.commute_destination,
+                "property_lat": run.property_lat,
+                "property_lon": run.property_lon,
+                # Map overlay data (populated early in the task)
+                "noise_sources_geo": run.noise_sources_geo or [],
+                "neighbourhood_pois_geo": run.neighbourhood_pois_geo or [],
+                # Partial event stream (updated every 4 ticks)
+                "events": run.sim_events_partial or [],
+                # Final result only when completed
+                "result": run.result if run.status == "completed" else None,
+                "mediation_rules": run.mediation_rules if run.status == "completed" else None,
+                "error": run.error or None,
+            },
+            status=status.HTTP_200_OK,
+        )

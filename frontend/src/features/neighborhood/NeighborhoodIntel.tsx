@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/shared/store/useApp";
+import { useSimStore } from "@/shared/store/useSimStore";
 import { assessmentApi } from "@/services/assessmentApi";
 import type {
   NeighborhoodProfile,
@@ -23,7 +24,7 @@ import {
   MapPin, Thermometer, Volume2, Building2, Bus, Heart,
   AlertTriangle, CheckCircle, Loader2, ChevronDown, ChevronUp,
   ShoppingCart, School, Coffee, Dumbbell, Landmark, Bike,
-  Hospital, Leaf, Library, Banknote,
+  Hospital, Leaf, Library, Banknote, Map,
 } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -180,6 +181,7 @@ function POIGroup({
 
 export function NeighborhoodIntel() {
   const { pins, selectedPinId, apartments } = useApp();
+  const { setNoiseSources, setNeighbourhoodPois, toggleSimOverlay, showSimOverlay } = useSimStore();
   const pin = pins.find(p => p.id === selectedPinId);
   const apartment = pin?.apartmentId ? apartments.find(a => a.id === pin.apartmentId) : null;
 
@@ -232,6 +234,14 @@ export function NeighborhoodIntel() {
         setNoise(n);
         setNeighborhood(nb);
         setThermal(th);
+        // Dispatch to sim store for map overlay
+        if (n?.geo_sources?.length) setNoiseSources(n.geo_sources as any);
+        if (nb?.poi_details) {
+          const flat = Object.entries(nb.poi_details).flatMap(([cat, items]) =>
+            (items as any[]).filter(i => i.lat && i.lon).map(i => ({ category: cat, name: i.name || cat, lat: i.lat, lon: i.lon, distance_m: i.distance_m }))
+          );
+          setNeighbourhoodPois(flat);
+        }
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -241,6 +251,15 @@ export function NeighborhoodIntel() {
 
   return (
     <OverlayPanel title={title} subtitle="Real-time environment intelligence powered by OpenStreetMap" size="xl">
+      {/* Show on map toggle */}
+      <div className="flex justify-end mb-2">
+        <Button variant={showSimOverlay ? "default" : "outline"} size="sm"
+          className="rounded-xl gap-1.5 text-xs"
+          onClick={toggleSimOverlay}>
+          <Map className="h-3.5 w-3.5" />
+          {showSimOverlay ? "Hide from map" : "Show on map"}
+        </Button>
+      </div>
       {loading && (
         <div className="flex flex-col items-center justify-center gap-4 py-16">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />

@@ -4,6 +4,17 @@ from django.conf import settings
 
 
 class Property(models.Model):
+    ORIENTATION_CHOICES = [
+        ("north", "North"), ("south", "South"), ("east", "East"),
+        ("west", "West"), ("unknown", "Unknown"),
+    ]
+    BUILDING_MASS_CHOICES = [
+        ("heavy", "Heavy"), ("medium", "Medium"), ("light", "Light"),
+    ]
+    BUILDING_CONDITION_CHOICES = [
+        ("new", "New"), ("good", "Good"), ("fair", "Fair"), ("poor", "Poor"),
+    ]
+
     id = models.BigAutoField(primary_key=True)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="properties")
     address = models.CharField(max_length=255)
@@ -19,6 +30,44 @@ class Property(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # ── Apartment configuration (for life simulation) ──────────────────────────
+    floor_number = models.IntegerField(default=1)
+    orientation = models.CharField(
+        max_length=10, choices=ORIENTATION_CHOICES, default="unknown"
+    )
+    building_mass = models.CharField(
+        max_length=10, choices=BUILDING_MASS_CHOICES, default="heavy"
+    )
+    building_condition = models.CharField(
+        max_length=10, choices=BUILDING_CONDITION_CHOICES, default="good"
+    )
+    has_elevator = models.BooleanField(default=False)
+    has_cooling = models.BooleanField(default=False)
+    has_heating = models.BooleanField(default=False)
+    has_balcony = models.BooleanField(default=False)
+    has_internet = models.BooleanField(default=True)
+    has_kitchen = models.BooleanField(default=True)
+    has_cleaning_supplies = models.BooleanField(default=True)
+    has_parking = models.BooleanField(default=False)
+    has_storage = models.BooleanField(default=False)
+    has_security = models.BooleanField(default=False)
+    has_windows = models.BooleanField(default=True)
+    furnished = models.BooleanField(default=False)
+    smoking_allowed = models.BooleanField(default=False)
+    natural_light = models.FloatField(default=0.6)
+    building_age_years = models.IntegerField(default=10)
+    internet_type = models.CharField(
+        max_length=16,
+        choices=[("fiber", "Fiber"), ("adsl", "ADSL"), ("mobile", "Mobile"), ("none", "None"), ("unknown", "Unknown")],
+        default="unknown",
+    )
+    apt_configured = models.BooleanField(default=False)  # True once landlord fills form
+
+    # ── Cached assessment flags (set True after each pipeline step completes) ──
+    noise_assessed = models.BooleanField(default=False)
+    thermal_assessed = models.BooleanField(default=False)
+    neighbourhood_scanned = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-created_at"]

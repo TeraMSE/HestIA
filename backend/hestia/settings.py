@@ -57,12 +57,25 @@ INSTALLED_APPS = [
     "core",
     "room_sim",
     "social_sim",
+    "personality",
 ]
 
 # Ollama social simulation config
 import os
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+
+# Personality Builder — LLM configuration (TokenFactory / Groq / Ollama)
+# Set LLM_BACKEND=tokenfactory and TOKENFACTORY_API_KEY in .env to use TokenFactory.
+TOKENFACTORY_API_KEY      = os.environ.get("TOKENFACTORY_API_KEY", "")
+TOKENFACTORY_BASE_URL     = os.environ.get("TOKENFACTORY_BASE_URL", "https://tokenfactory.esprit.tn/api")
+TOKENFACTORY_PRIMARY_MODEL = os.environ.get("TOKENFACTORY_PRIMARY_MODEL", "hosted_vllm/Llama-3.1-70B-Instruct")
+TOKENFACTORY_FAST_MODEL   = os.environ.get("TOKENFACTORY_FAST_MODEL", "hosted_vllm/Llama-3.1-70B-Instruct")
+TOKENFACTORY_VERIFY_SSL   = os.environ.get("TOKENFACTORY_VERIFY_SSL", "false")
+GROQ_API_KEY              = os.environ.get("GROQ_API_KEY", "")
+GROQ_PRIMARY_MODEL        = os.environ.get("GROQ_PRIMARY_MODEL", "llama-3.3-70b-versatile")
+GROQ_FAST_MODEL           = os.environ.get("GROQ_FAST_MODEL", "llama-3.1-8b-instant")
+LLM_BACKEND               = os.environ.get("LLM_BACKEND", "tokenfactory")
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
