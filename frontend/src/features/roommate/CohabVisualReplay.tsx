@@ -4,8 +4,7 @@
  * Reuses the exact same Three.js stack as VisualReplay:
  *   RoomEnvironment, AgentManager, FurnitureManager, TimeOfDayController
  *
- * Driven by the VisualSimulationReplay fetched from /cohab/{runId}/replay/,
- * which contains 2 FrameAgentState entries per SimulationFrame.
+ * Driven by the LifeSimDriver to play back the VisualSimulationReplay.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
@@ -14,6 +13,7 @@ import { RoomEnvironment } from "../room-sim/engine/RoomEnvironment";
 import { AgentManager } from "../room-sim/engine/AgentManager";
 import { FurnitureManager } from "../room-sim/engine/FurnitureManager";
 import { TimeOfDayController } from "../room-sim/engine/TimeOfDay";
+import { LifeSimDriver } from "../room-sim/engine/LifeSimDriver";
 import {
   Loader2,
   Play,
@@ -27,7 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cohabApi } from "@/services/lifeSimApi";
-import type { VisualSimulationReplay, SimulationFrame } from "@/services/socialSimApi";
+import type { VisualSimulationReplay } from "@/services/socialSimApi";
 import { toast } from "sonner";
 
 interface Props {
@@ -36,8 +36,6 @@ interface Props {
   personaBName: string;
   onBack: () => void;
 }
-
-const TICK_DURATION_MS = 2500;
 
 export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }: Props) {
   /* Three.js refs */
@@ -52,6 +50,7 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
   const todRef = useRef<TimeOfDayController | null>(null);
   const animIdRef = useRef<number | null>(null);
   const roomEnvRef = useRef<RoomEnvironment | null>(null);
+  const driverRef = useRef<LifeSimDriver | null>(null);
 
   /* Playback state */
   const [loading, setLoading] = useState(true);
@@ -60,14 +59,8 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
   const [roomReady, setRoomReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [currentTick, setCurrentTick] = useState(0);
+  const [timeLabel, setTimeLabel] = useState("--:--");
   const [currentConflict, setCurrentConflict] = useState<string | null>(null);
-  const playingRef = useRef(false);
-  const tickRef = useRef(0);
-  const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  /* Agent IDs bound after scene init */
-  const agentIdARef = useRef<string | null>(null);
-  const agentIdBRef = useRef<string | null>(null);
 
   /* ── Fetch replay data ───────────────────────────────────────────── */
   useEffect(() => {
@@ -99,7 +92,7 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true;
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
@@ -158,7 +151,7 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
       window.removeEventListener("resize", onResize);
       observer.disconnect();
       if (animIdRef.current !== null) cancelAnimationFrame(animIdRef.current);
-      if (frameTimerRef.current) clearInterval(frameTimerRef.current);
+      if (driverRef.current) driverRef.current.dispose();
       agentMgr.dispose();
       furnitureMgrRef.current?.dispose();
       roomEnv.dispose();
@@ -173,7 +166,7 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
 
   /* ── Spawn agents + build room once replay is loaded ─────────────── */
   useEffect(() => {
-    if (!replay || !agentMgrRef.current || !roomEnvRef.current) return;
+    if (!replay || !agentMgrRef.current || !roomEnvRef.current || !todRef.current || roomReady) return;
 
     const agentMgr = agentMgrRef.current;
     const roomEnv = roomEnvRef.current;
@@ -183,117 +176,78 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
     furnitureMgr.buildFromLayout(replay.apartment);
     furnitureMgrRef.current = furnitureMgr;
 
-    // Spawn Agent A (violet)
+    // Spawn Agent A
     const agentA = agentMgr.spawnAgent("male");
     if (agentA) {
       agentA.label = personaAName;
       agentA.color = "#a78bfa"; // violet
-      agentIdARef.current = agentA.id;
     }
 
-    // Spawn Agent B (cyan)
+    // Spawn Agent B
     const agentB = agentMgr.spawnAgent("female");
     if (agentB) {
       agentB.label = personaBName;
       agentB.color = "#22d3ee"; // cyan
-      agentIdBRef.current = agentB.id;
     }
+
+    // Initialize Driver
+    const driver = new LifeSimDriver(agentMgr, furnitureMgr, todRef.current, replay, {
+      userALabel: personaAName,
+      userBLabel: personaBName,
+    });
+    driver.setSpeed(1.5); // Slightly faster for cohab
+
+    driver.onTickChange = (tick, lbl) => {
+      setCurrentTick(tick);
+      setTimeLabel(lbl);
+    };
+
+    driver.onConflict = (conflict) => {
+      setCurrentConflict(conflict.description);
+      setTimeout(() => setCurrentConflict(null), 3000);
+    };
+
+    driver.onComplete = () => {
+      setPlaying(false);
+      toast.success("Replay complete!");
+    };
+
+    driverRef.current = driver;
 
     setRoomReady(true);
     toast.success("Room ready — press Play to start the replay");
-  }, [replay, personaAName, personaBName]);
-
-  /* ── Apply a single frame to the 3D scene ───────────────────────── */
-  const applyFrame = useCallback(
-    (frame: SimulationFrame) => {
-      if (!agentMgrRef.current) return;
-      const agentMgr = agentMgrRef.current;
-
-      for (const agentState of frame.agents) {
-        // Match by name (index 0 = A, index 1 = B) via stored IDs
-        const idA = agentIdARef.current;
-        const idB = agentIdBRef.current;
-
-        const isAgentA = agentState.name === personaAName;
-        const targetId = isAgentA ? idA : idB;
-        if (!targetId) continue;
-
-        const agent = agentMgr.agents.find((a) => a.id === targetId);
-        if (!agent) continue;
-
-        // Move to grid position from frame data
-        const targetX = (agentState.x - 5) * 1.2; // centre the grid
-        const targetZ = (agentState.y - 4) * 1.2;
-        agent.moveTo(new THREE.Vector3(targetX, 0, targetZ));
-
-        // Set mood via color tint
-        if (agentState.mood === "happy") agent.color = isAgentA ? "#a78bfa" : "#22d3ee";
-        else if (agentState.mood === "frustrated") agent.color = "#f97316";
-        else if (agentState.mood === "upset") agent.color = "#ef4444";
-        else agent.color = isAgentA ? "#a78bfa" : "#22d3ee";
-
-        // Speech bubble
-        if (agentState.speech_bubble) {
-          agent.setSpeechBubble?.(agentState.speech_bubble);
-        }
-      }
-
-      // Time of day
-      const hour = 6 + (frame.tick % 24);
-      todRef.current?.setHour(hour);
-
-      // Conflict overlay
-      if (frame.conflict) {
-        setCurrentConflict(frame.conflict.description);
-        setTimeout(() => setCurrentConflict(null), 3000);
-      }
-    },
-    [personaAName]
-  );
+  }, [replay, personaAName, personaBName, roomReady]);
 
   /* ── Playback loop ───────────────────────────────────────────────── */
   const startPlayback = useCallback(() => {
-    if (!replay || !roomReady) return;
-    if (frameTimerRef.current) clearInterval(frameTimerRef.current);
-
-    playingRef.current = true;
+    if (!driverRef.current) return;
+    if (driverRef.current.currentFrameIndex >= driverRef.current.totalFrames - 1) {
+      driverRef.current.seek(0);
+    }
+    if (!driverRef.current.isPlaying) {
+      driverRef.current.start();
+    } else {
+      driverRef.current.resume();
+    }
     setPlaying(true);
-
-    frameTimerRef.current = setInterval(() => {
-      const frames = replay.frames;
-      const next = tickRef.current;
-
-      if (next >= frames.length) {
-        clearInterval(frameTimerRef.current!);
-        frameTimerRef.current = null;
-        playingRef.current = false;
-        setPlaying(false);
-        toast.success("Replay complete!");
-        return;
-      }
-
-      applyFrame(frames[next]);
-      setCurrentTick(next);
-      tickRef.current = next + 1;
-    }, TICK_DURATION_MS);
-  }, [replay, roomReady, applyFrame]);
+  }, []);
 
   const pausePlayback = useCallback(() => {
-    if (frameTimerRef.current) clearInterval(frameTimerRef.current);
-    frameTimerRef.current = null;
-    playingRef.current = false;
+    if (!driverRef.current) return;
+    driverRef.current.pause();
     setPlaying(false);
   }, []);
 
   const resetPlayback = useCallback(() => {
-    pausePlayback();
-    tickRef.current = 0;
+    if (!driverRef.current) return;
+    driverRef.current.pause();
+    driverRef.current.seek(0);
+    setPlaying(false);
     setCurrentTick(0);
-  }, [pausePlayback]);
+  }, []);
 
   const totalFrames = replay?.frames.length ?? 0;
-  const progressPct = totalFrames > 0 ? Math.round((currentTick / totalFrames) * 100) : 0;
-  const timeLabel = replay?.frames[currentTick]?.time_label ?? "--:--";
+  const progressPct = totalFrames > 0 ? Math.round((currentTick / (totalFrames - 1 || 1)) * 100) : 0;
 
   /* ── Render ──────────────────────────────────────────────────────── */
   return (
@@ -339,7 +293,7 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
 
         {/* Error overlay */}
         {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#060610]/90 gap-3 p-6">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#060610]/90 gap-3 p-6 z-50">
             <AlertTriangle className="h-8 w-8 text-red-400" />
             <p className="text-sm text-red-300 text-center">{error}</p>
             <Button size="sm" variant="outline" onClick={onBack}>Go Back</Button>
@@ -349,7 +303,7 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
         {/* Conflict flash */}
         {currentConflict && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 max-w-sm w-full mx-4 z-20 animate-in fade-in slide-in-from-top-2 duration-300">
-            <div className="bg-amber-950/90 border border-amber-500/40 rounded-xl px-4 py-2 flex items-start gap-2">
+            <div className="bg-amber-950/90 border border-amber-500/40 rounded-xl px-4 py-2 flex items-start gap-2 shadow-2xl">
               <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
               <p className="text-xs text-amber-200 leading-relaxed">{currentConflict}</p>
             </div>
@@ -357,13 +311,13 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
         )}
 
         {/* Legend */}
-        {roomReady && (
-          <div className="absolute bottom-3 left-3 flex flex-col gap-1">
-            <div className="flex items-center gap-2 bg-black/60 rounded-lg px-2 py-1">
+        {roomReady && !loading && !error && (
+          <div className="absolute bottom-3 left-3 flex flex-col gap-1 z-10">
+            <div className="flex items-center gap-2 bg-black/60 rounded-lg px-2 py-1 backdrop-blur-sm border border-white/5">
               <div className="w-3 h-3 rounded-full bg-violet-400" />
               <span className="text-xs text-gray-300">{personaAName}</span>
             </div>
-            <div className="flex items-center gap-2 bg-black/60 rounded-lg px-2 py-1">
+            <div className="flex items-center gap-2 bg-black/60 rounded-lg px-2 py-1 backdrop-blur-sm border border-white/5">
               <div className="w-3 h-3 rounded-full bg-cyan-400" />
               <span className="text-xs text-gray-300">{personaBName}</span>
             </div>
@@ -408,8 +362,8 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
             )}
           </Button>
 
-          <span className="text-xs text-gray-500 shrink-0">
-            {currentTick}/{totalFrames}
+          <span className="text-xs text-gray-500 shrink-0 min-w-[30px] text-right">
+            {currentTick}/{Math.max(0, totalFrames - 1)}
           </span>
         </div>
 
@@ -435,3 +389,4 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
     </div>
   );
 }
+
