@@ -1,12 +1,13 @@
-"""LLM client supporting TokenFactory (OpenAI-compatible) and Ollama backends."""
+"""LLM client with automatic fallback chain: TokenFactory → Groq → Ollama."""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import List
 
 import requests
 from dotenv import load_dotenv
@@ -27,79 +28,97 @@ class StructuredOutputError(Exception):
 class LLMBackend(str, Enum):
     OLLAMA = "ollama"
     TOKENFACTORY = "tokenfactory"
+    GROQ = "groq"
 
 
 @dataclass
 class LLMConfig:
-    backend: str
-    ollama_model: str
-    ollama_base_url: str
+    # TokenFactory (primary)
     tokenfactory_api_key: str
     tokenfactory_base_url: str
     tokenfactory_primary_model: str
     tokenfactory_fast_model: str
     tokenfactory_verify_ssl: bool
 
+    # Groq (first fallback)
+    groq_api_key: str
+    groq_base_url: str
+    groq_model: str
+    groq_fast_model: str
+
+    # Ollama (last resort)
+    ollama_model: str
+    ollama_base_url: str
+
+    # Ordered fallback chain
+    provider_chain: List[str] = field(default_factory=list)
+
     @classmethod
     def from_env(cls) -> "LLMConfig":
-        ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-        ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        tokenfactory_api_key = os.getenv("TOKENFACTORY_API_KEY", "").strip()
-        tokenfactory_base_url = os.getenv(
-            "TOKENFACTORY_BASE_URL", "https://tokenfactory.esprit.tn/api"
-        ).strip()
-        tokenfactory_primary_model = os.getenv(
-            "TOKENFACTORY_PRIMARY_MODEL", "hosted_vllm/Llama-3.1-70B-Instruct"
-        ).strip()
-        tokenfactory_fast_model = os.getenv(
-            "TOKENFACTORY_FAST_MODEL", "hosted_vllm/Llama-3.1-70B-Instruct"
-        ).strip()
-        tokenfactory_verify_ssl = (
-            os.getenv("TOKENFACTORY_VERIFY_SSL", "false").strip().lower()
-            in {"1", "true", "yes", "on"}
-        )
-        requested_backend = os.getenv("LLM_BACKEND", "").strip().lower()
+        # TokenFactory
+        tf_key = os.getenv("TOKENFACTORY_API_KEY", "").strip()
+        tf_base = os.getenv("TOKENFACTORY_BASE_URL", "https://tokenfactory.esprit.tn/api").strip()
+        tf_primary = os.getenv("TOKENFACTORY_PRIMARY_MODEL", "hosted_vllm/Llama-3.1-70B-Instruct").strip()
+        tf_fast = os.getenv("TOKENFACTORY_FAST_MODEL", "hosted_vllm/Llama-3.1-70B-Instruct").strip()
+        tf_verify_ssl = os.getenv("TOKENFACTORY_VERIFY_SSL", "false").strip().lower() in {"1", "true", "yes", "on"}
 
-        if requested_backend == LLMBackend.TOKENFACTORY.value:
-            if tokenfactory_api_key:
-                backend = LLMBackend.TOKENFACTORY.value
-            else:
-                logger.warning(
-                    "LLM_BACKEND=tokenfactory but TOKENFACTORY_API_KEY is missing. Falling back to Ollama."
-                )
-                backend = LLMBackend.OLLAMA.value
-        elif requested_backend == LLMBackend.OLLAMA.value:
-            backend = LLMBackend.OLLAMA.value
-        elif tokenfactory_api_key:
-            backend = LLMBackend.TOKENFACTORY.value
-            logger.info("TOKENFACTORY_API_KEY found — using TokenFactory backend.")
+        # Groq
+        groq_key = os.getenv("GROQ_API_KEY", "").strip()
+        groq_base = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").strip()
+        groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+        groq_fast = os.getenv("GROQ_FAST_MODEL", "llama-3.1-8b-instant").strip()
+
+        # Ollama
+        ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+        ollama_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+        # Build the provider chain based on what keys are available
+        explicit_backend = os.getenv("LLM_BACKEND", "").strip().lower()
+        chain: List[str] = []
+
+        if explicit_backend == LLMBackend.OLLAMA.value:
+            chain = [LLMBackend.OLLAMA.value]
+        elif explicit_backend == LLMBackend.GROQ.value:
+            chain = [LLMBackend.GROQ.value, LLMBackend.OLLAMA.value]
+        elif explicit_backend == LLMBackend.TOKENFACTORY.value:
+            chain = [LLMBackend.TOKENFACTORY.value]
+            if groq_key:
+                chain.append(LLMBackend.GROQ.value)
+            chain.append(LLMBackend.OLLAMA.value)
         else:
-            backend = LLMBackend.OLLAMA.value
-            logger.warning(
-                "No TOKENFACTORY_API_KEY found. Falling back to local Ollama. "
-                "Make sure Ollama is running with: ollama serve"
-            )
+            # Auto-detect: always try available providers in priority order
+            if tf_key:
+                chain.append(LLMBackend.TOKENFACTORY.value)
+            if groq_key:
+                chain.append(LLMBackend.GROQ.value)
+            chain.append(LLMBackend.OLLAMA.value)
+
+        if not chain:
+            chain = [LLMBackend.OLLAMA.value]
+
+        logger.info("LLM provider chain: %s", " → ".join(chain))
 
         return cls(
-            backend=backend,
+            tokenfactory_api_key=tf_key,
+            tokenfactory_base_url=tf_base,
+            tokenfactory_primary_model=tf_primary,
+            tokenfactory_fast_model=tf_fast,
+            tokenfactory_verify_ssl=tf_verify_ssl,
+            groq_api_key=groq_key,
+            groq_base_url=groq_base,
+            groq_model=groq_model,
+            groq_fast_model=groq_fast,
             ollama_model=ollama_model,
-            ollama_base_url=ollama_base_url,
-            tokenfactory_api_key=tokenfactory_api_key,
-            tokenfactory_base_url=tokenfactory_base_url,
-            tokenfactory_primary_model=tokenfactory_primary_model,
-            tokenfactory_fast_model=tokenfactory_fast_model,
-            tokenfactory_verify_ssl=tokenfactory_verify_ssl,
+            ollama_base_url=ollama_base,
+            provider_chain=chain,
         )
 
 
 class OllamaLLMClient:
-    """Unified LLM client for HestIA social simulation (TokenFactory or Ollama)."""
+    """Unified LLM client: TokenFactory → Groq → Ollama fallback chain."""
 
     def __init__(self) -> None:
         self.config = LLMConfig.from_env()
-        logger.info(
-            "OllamaLLMClient: backend=%s", self.config.backend
-        )
 
     def complete(
         self,
@@ -108,24 +127,25 @@ class OllamaLLMClient:
         temperature: float = 0.7,
         use_fast_model: bool = False,
     ) -> str:
-        try:
-            if self.config.backend == LLMBackend.TOKENFACTORY.value:
-                return self._complete_tokenfactory(
-                    system_prompt=system_prompt,
-                    user_message=user_message,
-                    temperature=temperature,
-                    use_fast_model=use_fast_model,
-                )
-            return self._complete_ollama(
-                system_prompt=system_prompt,
-                user_message=user_message,
-                temperature=temperature,
-            )
-        except LLMCallError:
-            raise
-        except Exception as exc:
-            logger.error("LLM completion failed: %s", exc)
-            raise LLMCallError(f"LLM completion failed: {exc}") from exc
+        last_error: Exception | None = None
+        for provider in self.config.provider_chain:
+            try:
+                if provider == LLMBackend.TOKENFACTORY.value:
+                    return self._complete_tokenfactory(system_prompt, user_message, temperature, use_fast_model)
+                elif provider == LLMBackend.GROQ.value:
+                    return self._complete_groq(system_prompt, user_message, temperature, use_fast_model)
+                elif provider == LLMBackend.OLLAMA.value:
+                    return self._complete_ollama(system_prompt, user_message, temperature)
+            except LLMCallError as exc:
+                logger.warning("Provider '%s' failed: %s — trying next.", provider, exc)
+                last_error = exc
+            except Exception as exc:
+                logger.warning("Provider '%s' unexpected error: %s — trying next.", provider, exc)
+                last_error = exc
+
+        raise LLMCallError(
+            f"All LLM providers exhausted. Last error: {last_error}"
+        ) from last_error
 
     def complete_structured(
         self,
@@ -154,21 +174,7 @@ class OllamaLLMClient:
             except json.JSONDecodeError as exc:
                 raise StructuredOutputError("Failed to parse structured JSON from LLM.") from exc
 
-    def is_tokenfactory(self) -> bool:
-        return self.config.backend == LLMBackend.TOKENFACTORY.value
-
-    def get_backend_info(self) -> dict:
-        if self.is_tokenfactory():
-            primary = self.config.tokenfactory_primary_model
-            fast = self.config.tokenfactory_fast_model
-            note = (
-                f"TokenFactory (OpenAI-compatible). "
-                f"TLS verification={'enabled' if self.config.tokenfactory_verify_ssl else 'disabled'}."
-            )
-        else:
-            primary = fast = self.config.ollama_model
-            note = "Local Ollama — ensure 'ollama serve' is running."
-        return {"backend": self.config.backend, "primary_model": primary, "fast_model": fast, "note": note}
+    # ── Provider implementations ───────────────────────────────────────────────
 
     def _complete_tokenfactory(
         self,
@@ -177,6 +183,8 @@ class OllamaLLMClient:
         temperature: float,
         use_fast_model: bool,
     ) -> str:
+        if not self.config.tokenfactory_api_key:
+            raise LLMCallError("TokenFactory API key not configured.")
         model = (
             self.config.tokenfactory_fast_model
             if use_fast_model
@@ -201,7 +209,7 @@ class OllamaLLMClient:
                 endpoint,
                 headers=headers,
                 json=payload,
-                timeout=90,
+                timeout=30,  # Reduced from 90s — fail fast so Groq fallback kicks in
                 verify=self.config.tokenfactory_verify_ssl,
             )
             resp.raise_for_status()
@@ -213,12 +221,55 @@ class OllamaLLMClient:
             if not content:
                 raise LLMCallError("TokenFactory response content is empty.")
             return content
+        except requests.Timeout as exc:
+            raise LLMCallError(f"TokenFactory timed out: {exc}") from exc
         except requests.HTTPError as exc:
-            logger.error("TokenFactory HTTP error: %s", exc)
             raise LLMCallError(f"TokenFactory HTTP error: {exc}") from exc
         except requests.RequestException as exc:
-            logger.error("TokenFactory request failed: %s", exc)
             raise LLMCallError(f"TokenFactory request failed: {exc}") from exc
+
+    def _complete_groq(
+        self,
+        system_prompt: str,
+        user_message: str,
+        temperature: float,
+        use_fast_model: bool,
+    ) -> str:
+        if not self.config.groq_api_key:
+            raise LLMCallError("Groq API key not configured.")
+        model = self.config.groq_fast_model if use_fast_model else self.config.groq_model
+        endpoint = f"{self.config.groq_base_url.rstrip('/')}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.config.groq_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "temperature": temperature,
+            "max_tokens": 1024,
+        }
+        try:
+            resp = requests.post(endpoint, headers=headers, json=payload, timeout=45)
+            resp.raise_for_status()
+            data = resp.json()
+            choices = data.get("choices") or []
+            if not choices:
+                raise LLMCallError("Groq response did not include choices.")
+            content = str((choices[0].get("message") or {}).get("content", "")).strip()
+            if not content:
+                raise LLMCallError("Groq response content is empty.")
+            return content
+        except requests.Timeout as exc:
+            raise LLMCallError(f"Groq timed out: {exc}") from exc
+        except requests.HTTPError as exc:
+            # Groq rate-limit (429) — propagate so next provider is tried
+            raise LLMCallError(f"Groq HTTP error: {exc}") from exc
+        except requests.RequestException as exc:
+            raise LLMCallError(f"Groq request failed: {exc}") from exc
 
     def _complete_ollama(
         self,
@@ -243,22 +294,24 @@ class OllamaLLMClient:
             data = resp.json()
             return (data.get("message", {}).get("content") or "").strip()
         except Exception as exc:
-            logger.error("Ollama call failed: %s", exc)
             raise LLMCallError(f"Ollama call failed: {exc}") from exc
 
+    # ── Info helpers ───────────────────────────────────────────────────────────
+
+    def is_tokenfactory(self) -> bool:
+        return self.config.provider_chain[0] == LLMBackend.TOKENFACTORY.value if self.config.provider_chain else False
+
     def get_backend_info(self) -> dict:
-        """Return metadata about the active LLM backend."""
-        if self.config.backend == LLMBackend.TOKENFACTORY.value:
-            return {
-                "backend": "tokenfactory",
-                "primary_model": self.config.tokenfactory_primary_model,
-                "fast_model": self.config.tokenfactory_fast_model,
-                "base_url": self.config.tokenfactory_base_url,
-            }
+        primary = self.config.provider_chain[0] if self.config.provider_chain else "ollama"
+        model_map = {
+            LLMBackend.TOKENFACTORY.value: self.config.tokenfactory_primary_model,
+            LLMBackend.GROQ.value: self.config.groq_model,
+            LLMBackend.OLLAMA.value: self.config.ollama_model,
+        }
         return {
-            "backend": "ollama",
-            "model": self.config.ollama_model,
-            "base_url": self.config.ollama_base_url,
+            "backend": primary,
+            "provider_chain": self.config.provider_chain,
+            "primary_model": model_map.get(primary, "unknown"),
         }
 
 
@@ -274,7 +327,7 @@ def _strip_fences(text: str) -> str:
     return text
 
 
-# Aliases for compatibility
+# Aliases for compatibility with existing imports
 UnifiedLLMClient = OllamaLLMClient
 LLMClient = OllamaLLMClient
 

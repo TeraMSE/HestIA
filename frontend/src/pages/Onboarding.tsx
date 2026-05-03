@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/shared/store/useAuthStore";
+import { socialApi } from "@/services/socialApi";
+import { userToLifeSimPersona } from "@/features/persona/toLifeSimPersona";
 import { toast } from "sonner";
 import type { UserRole } from "@/contracts/types";
 import { PersonalityBuilder, PersonalityResult } from "@/features/onboarding/PersonalityBuilder";
@@ -65,27 +67,51 @@ export default function Onboarding() {
 
       await signup(email, password, firstName, lastName, role);
 
+      const token = localStorage.getItem("access_token");
+
       // If we have a personality result, persist lifestyle prefs to the user profile
-      // (The persona payload is handled by the SimulationRunner/PersonaBuilder later)
-      if (personalityResult) {
+      if (personalityResult && token) {
         const tv = personalityResult.traitVector;
-        // Patch the user's living preference fields via Djoser's /auth/users/me/
-        const token = localStorage.getItem("access_token");
-        if (token) {
-          await fetch("/api/v1/auth/users/me/", {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              noise_tolerance: Math.round((1 - tv.noise_sensitivity) * 100),
-              cleanliness: Math.round(tv.cleanliness * 100),
-              thermal_sensitivity: Math.round(tv.thermal_sensitivity * 100),
-              smoker: tv.smoker,
-              daily_schedule: tv.early_riser ? "early_bird" : "night_owl",
-            }),
-          });
+        await fetch("/api/v1/auth/users/me/", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            noise_tolerance: Math.round((1 - tv.noise_sensitivity) * 100),
+            cleanliness: Math.round(tv.cleanliness * 100),
+            thermal_sensitivity: Math.round(tv.thermal_sensitivity * 100),
+            smoker: tv.smoker,
+            daily_schedule: tv.early_riser ? "early_bird" : "night_owl",
+          }),
+        });
+      }
+
+      // Always re-fetch /me/ after all updates to get the complete user object
+      // (role + any patched fields) and update localStorage + the auth store
+      let freshUser: any = null;
+      if (token) {
+        const meRes = await fetch("/api/v1/auth/users/me/", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (meRes.ok) {
+          freshUser = await meRes.json();
+          localStorage.setItem("user", JSON.stringify(freshUser));
+          useAuthStore.getState().initializeAuth();
+        }
+      }
+
+      // Save persona to UserPersona so has_persona=true in the backend.
+      // This makes the user eligible for the Roommate Compatibility candidate list.
+      // Build from the fresh user object (which now has personality preference fields).
+      if (freshUser) {
+        try {
+          const lsPersona = userToLifeSimPersona(freshUser);
+          await socialApi.saveMyPersona(lsPersona);
+        } catch {
+          // Non-fatal: persona save failure doesn't block signup
+          console.warn("Could not save persona during onboarding");
         }
       }
 

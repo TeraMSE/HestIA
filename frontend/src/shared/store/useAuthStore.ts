@@ -31,8 +31,18 @@ interface AuthStore {
   initializeAuth: () => void;
 }
 
+// Pre-populate user synchronously from localStorage so it's available on first render
+function loadStoredUser(): User | null {
+  try {
+    const stored = localStorage.getItem("user");
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const useAuthStore = create<AuthStore>((set) => ({
-  user: null,
+  user: loadStoredUser(), // ← synchronous: available on first render, no race condition
   isLoading: false,
   error: null,
 
@@ -59,7 +69,14 @@ export const useAuthStore = create<AuthStore>((set) => ({
         role,
       });
 
-      const userData: User = response.data;
+      // Auto-login to get JWT tokens (Djoser signup response doesn't include tokens)
+      const loginRes = await api.post("/auth/jwt/create/", { email, password });
+      localStorage.setItem("access_token", loginRes.data.access);
+      localStorage.setItem("refresh_token", loginRes.data.refresh);
+
+      // Fetch the full user profile (includes role from our custom serializer)
+      const meRes = await api.get("/auth/users/me/");
+      const userData: User = meRes.data;
       localStorage.setItem("user", JSON.stringify(userData));
       set({ user: userData, isLoading: false });
     } catch (error: any) {

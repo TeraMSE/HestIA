@@ -83,11 +83,6 @@ class RoommateCompatibilityAgent:
         event_b: SimulationEvent,
         tick: int,
     ) -> List[ConflictEvent]:
-        logger.info(
-            "Groq rate-limit precaution: sleeping 1.5s before conflict detection call."
-        )
-        time.sleep(1.5)
-
         system_prompt = (
             "You are a neutral housing mediator analyzing two roommates' "
             "behaviors. Be objective and specific."
@@ -182,22 +177,16 @@ class RoommateCompatibilityAgent:
         if conflict_type in alias_map:
             conflict_type = alias_map[conflict_type]
 
+        # Priority-ordered keyword map: noise checked before smoking to prevent
+        # smoking area mentions from overriding clear noise sensitivity conflicts.
+        priority_order = ["noise", "cleanliness", "thermal", "schedule", "space", "smoking"]
         keyword_map = {
-            "noise": ["noise", "loud", "music", "sound", "volume", "disturb", "quiet"],
+            "noise": ["noise", "loud", "music", "sound", "volume", "disturb", "quiet", "sensitivity"],
             "cleanliness": ["clean", "dirty", "mess", "trash", "dishes", "hygiene"],
-            "smoking": ["smok", "cigarette", "vape", "odor", "smell"],
+            "smoking": ["smok", "cigarette", "vape", "second-hand", "secondhand"],
             "thermal": [
-                "temperature",
-                "thermostat",
-                "heat",
-                "heating",
-                "cool",
-                "cooling",
-                "cold",
-                "warm",
-                "hot",
-                "air conditioning",
-                "ac",
+                "temperature", "thermostat", "heat", "heating",
+                "cool", "cooling", "cold", "warm", "hot", "air conditioning", "ac",
             ],
             "schedule": ["late", "early", "morning", "night", "sleep", "wake", "routine"],
             "space": ["space", "shared", "kitchen", "bathroom", "living room", "occupy"],
@@ -217,8 +206,14 @@ class RoommateCompatibilityAgent:
                 + 2.5 * signal_scores.get(conflict_name, 0.0)
             )
 
-        best_type = max(combined_scores, key=lambda name: combined_scores[name])
-        best_score = combined_scores[best_type]
+        # Tiebreaker: if noise and smoking are tied but description has noise keywords, prefer noise
+        if (combined_scores.get("noise", 0) > 0 and
+                combined_scores.get("smoking", 0) > 0 and
+                any(kw in text for kw in ["noise", "quiet", "loud", "disturb", "sensitivity"])):
+            combined_scores["smoking"] *= 0.5
+
+        best_type = max(priority_order, key=lambda n: combined_scores.get(n, 0.0))
+        best_score = combined_scores.get(best_type, 0.0)
 
         if conflict_type in allowed_types and conflict_type != "other":
             current_score = combined_scores.get(conflict_type, 0.0)
@@ -306,12 +301,23 @@ class RoommateCompatibilityAgent:
         num_ticks: int = 12,
         progress_callback=None,
     ) -> Dict[str, Any]:
+        num_ticks = min(num_ticks, 12)  # Cap to prevent LLM timeout accumulation
+
+        # Prime each agent with initial roommate context before tick 0
+        self.agent_a.set_roommate_context(self.persona_b, None)
+        self.agent_b.set_roommate_context(self.persona_a, None)
+
         for tick in range(num_ticks):
             event_a = self.agent_a.run_tick()
             event_b = self.agent_b.run_tick()
 
+            # Update each agent with what the other just did, so next tick is contextual
+            self.agent_a.set_roommate_context(self.persona_b, event_b)
+            self.agent_b.set_roommate_context(self.persona_a, event_a)
+
             new_conflicts = self.detect_behavioral_conflicts(event_a, event_b, tick)
 
+            conflict_descriptions: List[str] = []
             for conflict in new_conflicts:
                 self.conflicts.append(conflict)
 
@@ -329,11 +335,41 @@ class RoommateCompatibilityAgent:
                 penalty = conflict.severity * 0.05
                 self.agent_a.satisfaction = max(0.0, self.agent_a.satisfaction - penalty)
                 self.agent_b.satisfaction = max(0.0, self.agent_b.satisfaction - penalty)
+                conflict_descriptions.append(conflict.description)
 
             if progress_callback:
+                # Build a joint roommate event so the frontend feed shows shared interactions
+                # rather than solo individual actions from the pre-cohabitation solo runs
+                conflict_note = ""
+                if conflict_descriptions:
+                    conflict_note = " ⚠️ " + "; ".join(conflict_descriptions[:2])
+
+                joint_event = {
+                    "event_id": str(uuid.uuid4()),
+                    "tick": tick,
+                    "event_type": "cohabitation_tick",
+                    "persona_a_name": self.persona_a.name,
+                    "persona_b_name": self.persona_b.name,
+                    "persona_a_action": event_a.action,
+                    "persona_b_action": event_b.action,
+                    "persona_a_feeling": event_a.feeling,
+                    "persona_b_feeling": event_b.feeling,
+                    "room": event_a.room,
+                    "content": (
+                        f"{self.persona_a.name}: {event_a.action} | "
+                        f"{self.persona_b.name}: {event_b.action}"
+                        f"{conflict_note}"
+                    ),
+                    "conflicts": [c.model_dump() for c in new_conflicts],
+                    "satisfaction_a": self.agent_a.satisfaction,
+                    "satisfaction_b": self.agent_b.satisfaction,
+                }
+
                 progress_callback(
                     tick / num_ticks * 100,
-                    f"Cohabitation hour {tick + 1}/{num_ticks}...",
+                    f"Cohabitation hour {tick + 1}/{num_ticks} — "
+                    f"{self.persona_a.name} & {self.persona_b.name}",
+                    event=joint_event,
                 )
 
         score = self._compute_compatibility_score()

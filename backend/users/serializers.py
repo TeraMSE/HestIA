@@ -13,6 +13,11 @@ class CustomUserSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_at", "verified_email")
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        print(f"DEBUG: Serializing user {instance.email}. Role: {ret.get('role')}")
+        return ret
+
 
 class CustomUserCreateSerializer(DjoserUserCreateSerializer):
     """

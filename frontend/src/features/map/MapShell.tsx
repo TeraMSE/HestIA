@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, useMapEvents, CircleMarker } from "react-leaflet";
 import L from "leaflet";
 import { useApp } from "@/shared/store/useApp";
@@ -10,6 +10,8 @@ import api from "@/services/api";
 import { toast } from "sonner";
 import type { PropertyPin, POINode, PoiType } from "@/contracts/types";
 import { PinOrbitTools } from "./PinOrbitTools";
+import { useAuthStore } from "@/shared/store/useAuthStore";
+import { AddPropertyModal, PropertyFormData } from "./AddPropertyModal";
 
 // Fix default marker icon for Leaflet in bundlers (we use custom anyway).
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -233,50 +235,9 @@ function POIFetcher({ onFetch }: { onFetch: (pois: POINode[]) => void }) {
   return null;
 }
 
-/** Creates a real Django-backed property pin on map click. */
-function PinAdder() {
-  const { user, setPins, pins } = useApp();
-  useMapEvents({
-    async click(e) {
-      if (!user) return;
-      const title = window.prompt("Name this property (press Cancel to skip):");
-      if (!title) return;
-      try {
-        const res = await api.post("/properties/", {
-          address: title,
-          lat: e.latlng.lat,
-          lng: e.latlng.lng,
-          bedrooms: 1,
-          bathrooms: 1,
-          for_sale: false,
-          for_rent: true,
-        });
-        const prop = res.data;
-        const pin: PropertyPin = {
-          id: String(prop.id),
-          kind: "user_pin",
-          lat: Number(prop.lat),
-          lng: Number(prop.lng),
-          title: prop.address,
-          subtitle: "Your property",
-          ownerId: String(prop.owner_id ?? user.id),
-          scan: "unscanned",
-        };
-        // Attach has_3d from serializer
-        (pin as any).has_3d = prop.has_3d ?? false;
-        setPins([...pins, pin]);
-        toast.success("Property pin added!");
-      } catch {
-        // Fallback: local-only mock pin
-        const pin = await pinService.add({
-          kind: "user_pin", lat: e.latlng.lat, lng: e.latlng.lng,
-          title, subtitle: "Your saved place", scan: "unscanned",
-        });
-        setPins([...pins, pin]);
-        toast.success("Pin added (local)");
-      }
-    },
-  });
+/** Activates map-click to place a new property pin (landlord placement mode only). */
+function PinPlacer({ onPlace }: { onPlace: (lat: number, lng: number) => void }) {
+  useMapEvents({ click: (e) => onPlace(e.latlng.lat, e.latlng.lng) });
   return null;
 }
 
@@ -295,12 +256,64 @@ function MapEffects() {
 }
 
 export function MapShell() {
-  const { pins, setSelectedPinId, selectedPinId, activeFilters, setSelectedPin, user } = useApp();
+  const { pins, setPins, setSelectedPinId, selectedPinId, activeFilters, setSelectedPin, user, placementMode, setPlacementMode } = useApp();
+  const authUser = useAuthStore((s) => s.user);
+  const [pendingCoords, setPendingCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [pois, setPois] = useState<POINode[]>([]);
   const [interestedPins, setInterestedPins] = useState<Set<string>>(new Set());
 
+  // Restore interest state from backend on mount / login
+  useEffect(() => {
+    if (!authUser) return;
+    socialApi.getMyInterests().then((ids) => {
+      if (ids.length > 0) setInterestedPins(new Set(ids));
+    });
+  }, [authUser]);
+
+  const handleMapPlace = useCallback((lat: number, lng: number) => {
+    setPlacementMode(false);
+    setPendingCoords({ lat, lng });
+  }, [setPlacementMode]);
+
+  const handleModalConfirm = useCallback(async (formData: PropertyFormData) => {
+    const currentUser = authUser || user;
+    if (!pendingCoords || !currentUser) return;
+    try {
+      // No manual Authorization header — api.ts interceptor attaches the token automatically
+      // Round coordinates to 6 decimal places (~11cm precision) — backend DecimalField
+      // has max_digits=10/11 and would reject the 13+ decimal places from Leaflet click events
+      const res = await api.post("properties/", {
+        ...formData,
+        lat: parseFloat(pendingCoords.lat.toFixed(6)),
+        lng: parseFloat(pendingCoords.lng.toFixed(6)),
+      });
+      const prop = res.data;
+      const pin: PropertyPin = {
+        id: String(prop.id), kind: "property",
+        lat: Number(prop.lat), lng: Number(prop.lng),
+        title: prop.address,
+        subtitle: [formData.bedrooms + " BR", formData.for_rent ? "For Rent" : "", formData.for_sale ? "For Sale" : ""].filter(Boolean).join(" · "),
+        ownerId: String(prop.owner_id ?? currentUser.id),
+        scan: "unscanned",
+        priceTND: prop.price_tnd ? Number(prop.price_tnd) : undefined,
+        forRent: prop.for_rent, forSale: prop.for_sale,
+      };
+      (pin as any).has_3d = prop.has_3d ?? false;
+      setPins([...pins, pin]);
+      setSelectedPinId(pin.id);
+      setPendingCoords(null);
+      toast.success("Property added! Configure it in the drawer →");
+    } catch (err: any) {
+      console.error("Property creation error:", err);
+      toast.error(err?.response?.data?.detail ?? "Could not create property");
+    }
+  }, [pendingCoords, authUser, user, pins, setPins, setSelectedPinId]);
+
+  // Expose pendingCoords via store so MapHome can render the modal
+  const hasPendingModal = !!pendingCoords;
+
   const handleToggleInterest = async (pin: PropertyPin) => {
-    if (!user) { toast.error("Sign in to mark interest."); return; }
+    if (!authUser) { toast.error("Sign in to mark interest."); return; }
     try {
       const interested = await socialApi.togglePropertyInterest(pin.id);
       setInterestedPins(prev => {
@@ -321,6 +334,7 @@ export function MapShell() {
   }, [pins, activeFilters]);
 
   return (
+    <>
     <MapContainer
       center={center}
       zoom={14}
@@ -341,7 +355,7 @@ export function MapShell() {
         noWrap={true}
       />
       <MapEffects />
-      <PinAdder />
+      {placementMode && <PinPlacer onPlace={handleMapPlace} />}
       <POIFetcher onFetch={setPois} />
       <SimOverlayLayer />
       
@@ -373,7 +387,7 @@ export function MapShell() {
             {(p as any).has_3d && (
               <div className="mt-1 text-xs text-emerald-400 font-medium">✦ 3D world available</div>
             )}
-            {p.kind === "property" && (
+            {p.kind === "property" && !isNaN(Number(p.id)) && (
               <button
                 className="mt-2 w-full text-xs rounded-lg border px-2 py-1 transition-colors"
                 style={{
@@ -390,5 +404,16 @@ export function MapShell() {
       ))}
       <PinOrbitTools />
     </MapContainer>
+
+    {/* Add Property Modal — rendered outside MapContainer so z-index works correctly */}
+    {pendingCoords && (
+      <AddPropertyModal
+        lat={pendingCoords.lat}
+        lng={pendingCoords.lng}
+        onConfirm={handleModalConfirm}
+        onCancel={() => setPendingCoords(null)}
+      />
+    )}
+    </>
   );
 }
