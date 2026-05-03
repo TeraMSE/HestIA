@@ -35,3 +35,7 @@ ollama>=0.1.0
 diskcache>=5.6.0
 # Travel time estimation for neighborhood profiling
 openrouteservice>=2.3.3
+# PDF generation (appliances reports + STEG invoice)
+reportlab>=4.2.0
+# Web search for appliance specs
+duckduckgo-search>=5.3.1

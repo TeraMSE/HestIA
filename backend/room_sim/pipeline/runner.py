@@ -135,6 +135,7 @@ class PipelineRunner:
                     "window", "door", "rug", "mirror", "curtain",
                     "air conditioner", "painting", "sofa", "refrigerator",
                     "bookshelf", "cabinet", "couch", "armchair",
+                    "washing machine", "water heater",
                 ]
 
                 # Read the effective backend (decouple picks up .env correctly)
@@ -166,14 +167,28 @@ class PipelineRunner:
                     cv_pipeline = _get_cv_pipeline(str(yolo_ckpt), FURNITURE_CLASSES) if yolo_ckpt else None
 
                 if cv_pipeline is not None:
+                    faces_dir = job_dir / "cubemap_faces"
                     detections = cv_pipeline.run(
                         str(source_for_inference),
                         conf_threshold=0.2,
+                        save_faces_dir=str(faces_dir),
                     )
                     detections_path = job_dir / "detections.json"
                     with open(detections_path, "w") as f:
                         json.dump(detections, f, indent=4)
                     log(f"Saved {len(detections['detections'])} detections to detections.json")
+
+                    # -- Step 5: Appliance Energy Scanning --------------------
+                    set_step("appliance_scanning")
+                    log("Running appliance energy scan from panorama detections...")
+                    try:
+                        from .appliance_scanner import scan_appliances
+                        if faces_dir.is_dir():
+                            scan_appliances(job_dir, detections, faces_dir, log)
+                        else:
+                            log("WARNING: cubemap_faces dir missing — appliance scan skipped.")
+                    except Exception as _ap_exc:
+                        log(f"WARNING: Appliance scan failed ({_ap_exc}) — job still succeeds.")
             except Exception as e:
                 log(f"WARNING: Object detection failed: {e}")
                 # We do not fail the whole job if object detection fails.

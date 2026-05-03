@@ -228,4 +228,17 @@ export const assessmentApi = {
     const res = await api.get(`/social-sim/compatibility/report/${reportId}/`);
     return res.data;
   },
+
+  /** GET /social-sim/wellness/{propertyId}/ — composite Wellness Score */
+  async getWellness(propertyId: number): Promise<{
+    property_id: number;
+    wellness_score: number;
+    grade: string;
+    pillars: Record<string, { score: number | null; source: string | null; stale: boolean; ts: string | null }>;
+    weights: Record<string, number>;
+    missing: string[];
+  }> {
+    const res = await api.get(`/social-sim/wellness/${propertyId}/`);
+    return res.data;
+  },
 };

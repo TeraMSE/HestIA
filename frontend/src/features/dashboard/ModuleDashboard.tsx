@@ -3,7 +3,7 @@ import { useApp } from "@/shared/store/useApp";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Users, Home, History } from "lucide-react";
+import { Sparkles, Users, Home, History, Zap, HardHat } from "lucide-react";
 
 export function ModuleDashboard() {
   const { personas, apartments, openOverlay } = useApp();
@@ -48,6 +48,12 @@ export function ModuleDashboard() {
         </Button>
         <Button variant="outline" className="rounded-2xl h-20 flex-col gap-1" onClick={() => openOverlay("reports")}>
           <History className="h-5 w-5" /> History
+        </Button>
+        <Button variant="outline" className="rounded-2xl h-20 flex-col gap-1" onClick={() => openOverlay("material-agent")}>
+          <HardHat className="h-5 w-5" /> Material Agent
+        </Button>
+        <Button variant="outline" className="rounded-2xl h-20 flex-col gap-1" onClick={() => openOverlay("appliance-energy")}>
+          <Zap className="h-5 w-5" /> Appliance Energy
         </Button>
       </div>
 

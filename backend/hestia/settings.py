@@ -57,6 +57,8 @@ INSTALLED_APPS = [
     "core",
     "room_sim",
     "social_sim",
+    "materiaux",
+    "appliances",
     "personality",
 ]
 
@@ -165,6 +167,23 @@ MEDIA_ROOT = BASE_DIR / "media"
 CHECKPOINT_PATH = BASE_DIR / "checkpoints" / "horizonnet_resnet50_rnn.pth"
 PIPELINE_MAX_WORKERS = 1
 
+# Appliance Energy — CNN checkpoint
+APPLIANCE_CNN_PATH = BASE_DIR / "checkpoints" / "mobilenet_best.pth"
+
+# Materiaux — catalog and vector store
+MATERIAUX_CATALOG_PATH = BASE_DIR / "materiaux" / "data" / "catalogue_materiaux.json"
+MATERIAUX_CHROMA_PATH = BASE_DIR / "chroma_db" / "materiaux_tn"
+
+# Property Wellness Score weights (must sum to 1.0)
+WELLNESS_WEIGHTS = {
+    "noise":         0.15,
+    "neighborhood":  0.15,
+    "thermal":       0.15,
+    "materiaux":     0.20,
+    "appliances":    0.15,
+    "compatibility": 0.20,
+}
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -216,3 +235,12 @@ DJOSER = {
 # In production, replace with an explicit CORS_ALLOWED_ORIGINS list.
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+
+# CSRF Trusted Origins for Dev Tunnels
+CSRF_TRUSTED_ORIGINS = [
+    "https://fjxmjtg3-8081.uks1.devtunnels.ms",
+    "http://localhost:5173",
+    "http://localhost:8081",
+]
+if os.environ.get("CSRF_TRUSTED_ORIGINS"):
+    CSRF_TRUSTED_ORIGINS.extend(os.environ.get("CSRF_TRUSTED_ORIGINS").split(","))

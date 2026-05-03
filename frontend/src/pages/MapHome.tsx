@@ -10,6 +10,7 @@ import { Reports } from "@/features/reports/Reports";
 import { MaterialAgent } from "@/features/material-agent/MaterialAgent";
 import { AdminAssistant } from "@/features/admin-assistant/AdminAssistant";
 import { NeighborhoodIntel } from "@/features/neighborhood/NeighborhoodIntel";
+import { ApplianceEnergy } from "@/features/appliance-energy/ApplianceEnergy";
 
 export default function MapHome() {
   const { activeOverlay } = useApp();
@@ -28,6 +29,7 @@ export default function MapHome() {
       {activeOverlay === "material-agent" && <MaterialAgent />}
       {activeOverlay === "admin-assistant" && <AdminAssistant />}
       {activeOverlay === "neighborhood-intel" && <NeighborhoodIntel />}
+      {activeOverlay === "appliance-energy" && <ApplianceEnergy />}
       {activeOverlay === "apt-configurator" && <ApartmentConfigurator />}
     </div>
   );

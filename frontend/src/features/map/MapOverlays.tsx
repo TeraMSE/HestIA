@@ -57,7 +57,7 @@ export function MapOverlays() {
       }
     })();
     return () => { cancelled = true; };
-  }, [setPins, setPersonas, setApartments]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogout = () => { logout(); navigate("/"); };
   const displayName = user ? (user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.email.split("@")[0]) : "";

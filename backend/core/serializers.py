@@ -11,10 +11,52 @@ class PropertyImageSerializer(serializers.ModelSerializer):
 
 
 class PanoramaSerializer(serializers.ModelSerializer):
+    job_state = serializers.SerializerMethodField()
+    has_cubemap_faces = serializers.SerializerMethodField()
+    has_appliance_scan = serializers.SerializerMethodField()
+    face_urls = serializers.SerializerMethodField()
+
     class Meta:
         model = Panorama
-        fields = ("id", "property", "uploaded_by", "job_id", "status", "created_at", "completed_at", "error_message")
+        fields = (
+            "id", "property", "uploaded_by", "job_id", "status",
+            "created_at", "completed_at", "error_message",
+            "job_state", "has_cubemap_faces", "has_appliance_scan", "face_urls",
+        )
         read_only_fields = ("id", "created_at", "completed_at", "job_id", "uploaded_by", "error_message")
+
+    def _get_job(self, obj):
+        if not obj.job_id:
+            return None
+        try:
+            return ReconstructionJob.objects.get(pk=obj.job_id)
+        except ReconstructionJob.DoesNotExist:
+            return None
+
+    def get_job_state(self, obj):
+        job = self._get_job(obj)
+        return job.state if job else None
+
+    def get_has_cubemap_faces(self, obj):
+        job = self._get_job(obj)
+        return bool(job and (job.job_dir() / "cubemap_faces").is_dir())
+
+    def get_has_appliance_scan(self, obj):
+        job = self._get_job(obj)
+        return bool(job and (job.job_dir() / "appliance_scans.json").is_file())
+
+    def get_face_urls(self, obj):
+        job = self._get_job(obj)
+        if not job:
+            return {}
+        faces_dir = job.job_dir() / "cubemap_faces"
+        if not faces_dir.is_dir():
+            return {}
+        return {
+            face: f"/room-sim/api/jobs/{job.pk}/artifact/face/{face}/"
+            for face in ("front", "back", "left", "right", "top", "bottom")
+            if (faces_dir / f"{face}.jpg").is_file()
+        }
 
 
 class PropertyListSerializer(serializers.ModelSerializer):

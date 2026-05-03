@@ -277,3 +277,73 @@ def _strip_fences(text: str) -> str:
 # Aliases for compatibility
 UnifiedLLMClient = OllamaLLMClient
 LLMClient = OllamaLLMClient
+
+
+def call_tokenfactory_vision(
+    image_bytes: bytes,
+    prompt: str,
+    temperature: float = 0.1,
+    max_tokens: int = 1400,
+) -> str:
+    """Send a vision request to TokenFactory using the OpenAI image_url format.
+
+    This is a module-level helper so ``materiaux`` and ``appliances`` apps
+    can import it directly without instantiating OllamaLLMClient.
+    """
+    import base64
+
+    cfg = LLMConfig.from_env()
+    if cfg.backend != LLMBackend.TOKENFACTORY.value:
+        raise LLMCallError(
+            "call_tokenfactory_vision requires TokenFactory backend. "
+            "Set TOKENFACTORY_API_KEY in your .env."
+        )
+    image_b64 = base64.b64encode(image_bytes).decode()
+    endpoint = f"{cfg.tokenfactory_base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {cfg.tokenfactory_api_key}",
+        "Content-Type": "application/json",
+    }
+    import os
+    vision_model = os.getenv("TOKENFACTORY_VISION_MODEL", "hosted_vllm/llava-1.5-7b-hf").strip()
+
+    payload = {
+        "model": vision_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    try:
+        resp = requests.post(
+            endpoint,
+            headers=headers,
+            json=payload,
+            timeout=120,
+            verify=cfg.tokenfactory_verify_ssl,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        choices = data.get("choices") or []
+        if not choices:
+            raise LLMCallError("TokenFactory vision response missing choices.")
+        content = str((choices[0].get("message") or {}).get("content", "")).strip()
+        if not content:
+            raise LLMCallError("TokenFactory vision response content is empty.")
+        return content
+    except requests.HTTPError as exc:
+        logger.error("TokenFactory vision HTTP error: %s", exc)
+        raise LLMCallError(f"TokenFactory vision HTTP error: {exc}") from exc
+    except requests.RequestException as exc:
+        logger.error("TokenFactory vision request failed: %s", exc)
+        raise LLMCallError(f"TokenFactory vision request failed: {exc}") from exc

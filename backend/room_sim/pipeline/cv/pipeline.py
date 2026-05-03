@@ -66,20 +66,38 @@ class ZeroShotERPPipeline:
         print("Initializing ERP Reprojector...")
         self.reprojector = Reprojector(erp_width, erp_height, face_size)
 
-    def run(self, erp_path: str, conf_threshold: float = 0.3, debug: bool = False) -> Dict[str, Any]:
+    def run(self, erp_path: str, conf_threshold: float = 0.3, debug: bool = False,
+            save_faces_dir: str | None = None) -> Dict[str, Any]:
         """
         Executes the detection pipeline on a single ERP image.
+
+        Args:
+            erp_path: Path to the equirectangular panorama.
+            conf_threshold: YOLO confidence threshold.
+            debug: Save annotated cubemap faces for debugging.
+            save_faces_dir: If provided, the 6 cubemap face images are saved as
+                            JPEG files to this directory so downstream consumers
+                            (e.g. the appliance scanner) can crop from them
+                            without regenerating the cubemap projection.
         """
         print(f"Loading '{erp_path}'...")
         erp_img = cv2.imread(erp_path)
-        
+
         if erp_img is None:
             raise FileNotFoundError(f"Image not found at path: {erp_path}")
-            
+
         erp_img = cv2.resize(erp_img, (self.erp_width, self.erp_height))
 
         print("Converting ERP to Cubemaps...")
         faces = self.projection.process(erp_img)
+
+        # Optionally persist the 6 face images so other pipeline steps can use
+        # them without repeating the expensive ERP→Cubemap remap.
+        if save_faces_dir is not None:
+            os.makedirs(save_faces_dir, exist_ok=True)
+            for face_name, face_img in faces.items():
+                cv2.imwrite(os.path.join(save_faces_dir, f"{face_name}.jpg"), face_img)
+            print(f"Saved 6 cubemap faces to '{save_faces_dir}'.")
 
         all_detections = []
 
@@ -88,7 +106,7 @@ class ZeroShotERPPipeline:
             print(f"  -> Inferring on '{face_name}' face...")
             detections = self.detector.detect(face_img, face_name, conf_threshold)
             all_detections.extend(detections)
-            
+
             if debug and detections:
                 debug_img = face_img.copy()
                 for d in detections:
@@ -101,7 +119,8 @@ class ZeroShotERPPipeline:
         print("Reprojecting Coordinates and applying NMS...")
         final_detections = self.reprojector.process(all_detections)
 
-        # Build clean JSON output
+        # Build clean JSON output — cubemap_bbox is preserved so downstream
+        # steps can crop directly from the saved face images (no re-projection).
         results = {
             "source_image": os.path.basename(erp_path),
             "erp_resolution": [self.erp_width, self.erp_height],
@@ -111,7 +130,8 @@ class ZeroShotERPPipeline:
                     "class_name": d["class_name"],
                     "confidence_score": round(float(d["confidence_score"]), 4),
                     "cubemap_face": d["cubemap_face"],
-                    "erp_bounding_box": [round(float(c), 2) for c in d["erp_bounding_box"]]
+                    "cubemap_bbox": [round(float(c), 2) for c in d["cubemap_bbox"]],
+                    "erp_bounding_box": [round(float(c), 2) for c in d["erp_bounding_box"]],
                 }
                 for d in final_detections
             ]

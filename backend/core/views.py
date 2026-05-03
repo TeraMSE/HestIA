@@ -103,6 +103,7 @@ class PanoramaUploadView(APIView):
             checkpoint = request.data.get("checkpoint", "")
 
             job = ReconstructionJob.objects.create(
+                property=property_obj,
                 state="queued",
                 current_step="queued",
                 align_panorama=align_panorama,

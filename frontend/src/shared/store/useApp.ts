@@ -12,7 +12,9 @@ export type OverlayId =
   | "reports"
   | "material-agent"
   | "admin-assistant"
-  | "neighborhood-intel";
+  | "room-sim"
+  | "neighborhood-intel"
+  | "appliance-energy";
 
 interface AppState {
   // Auth

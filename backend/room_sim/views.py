@@ -327,3 +327,47 @@ def artifact_detections(request: HttpRequest, job_id: str) -> FileResponse:
 
     except ReconstructionJob.DoesNotExist:
         return JsonResponse({"error": "Job not found"}, status=404)
+
+
+@require_GET
+def artifact_appliance_scans(request: HttpRequest, job_id: str) -> FileResponse:
+    """GET /api/jobs/<uuid>/artifact/appliance_scans/ - Download appliance scan JSON."""
+    try:
+        job = get_object_or_404(ReconstructionJob, pk=job_id)
+
+        scans_path = job.job_dir() / "appliance_scans.json"
+        if not scans_path.is_file():
+            return JsonResponse(
+                {"error": "Appliance scans not found — no appliances detected or scan not yet run."},
+                status=404,
+            )
+
+        return FileResponse(
+            scans_path.open("rb"),
+            content_type="application/json",
+            as_attachment=False,
+        )
+
+    except ReconstructionJob.DoesNotExist:
+        return JsonResponse({"error": "Job not found"}, status=404)
+
+
+CUBEMAP_FACES = {"front", "back", "left", "right", "top", "bottom"}
+
+
+@require_GET
+def artifact_cubemap_face(request: HttpRequest, job_id: str, face_name: str) -> FileResponse:
+    """GET /api/jobs/<uuid>/artifact/face/<face_name>/ - Serve one cubemap face JPEG."""
+    if face_name not in CUBEMAP_FACES:
+        return JsonResponse(
+            {"error": f"Invalid face. Choose from: {sorted(CUBEMAP_FACES)}"},
+            status=400,
+        )
+    job = get_object_or_404(ReconstructionJob, pk=job_id)
+    face_path = job.job_dir() / "cubemap_faces" / f"{face_name}.jpg"
+    if not face_path.is_file():
+        return JsonResponse(
+            {"error": f"Face '{face_name}' not found — run 3D reconstruction first."},
+            status=404,
+        )
+    return FileResponse(face_path.open("rb"), content_type="image/jpeg")
