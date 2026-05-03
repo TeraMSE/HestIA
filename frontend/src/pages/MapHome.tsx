@@ -10,6 +10,7 @@ import { Reports } from "@/features/reports/Reports";
 import { MaterialAgent } from "@/features/material-agent/MaterialAgent";
 import { AdminAssistant } from "@/features/admin-assistant/AdminAssistant";
 import { NeighborhoodIntel } from "@/features/neighborhood/NeighborhoodIntel";
+import { RoomSimOverlay } from "@/features/room-sim/RoomSimOverlay";
 
 export default function MapHome() {
   const { activeOverlay } = useApp();
@@ -24,6 +25,7 @@ export default function MapHome() {
       {activeOverlay === "persona-builder" && <PersonaBuilder />}
       {activeOverlay === "apartment-configurator" && <ApartmentConfigurator />}
       {activeOverlay === "visual-replay" && <VisualReplay />}
+      {activeOverlay === "simulation-runner" && <RoomSimOverlay />}
       {activeOverlay === "reports" && <Reports />}
       {activeOverlay === "material-agent" && <MaterialAgent />}
       {activeOverlay === "admin-assistant" && <AdminAssistant />}

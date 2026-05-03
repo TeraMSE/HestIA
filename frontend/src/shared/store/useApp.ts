@@ -9,6 +9,7 @@ export type OverlayId =
   | "apartment-configurator"
   | "apt-configurator"
   | "visual-replay"
+  | "simulation-runner"
   | "reports"
   | "material-agent"
   | "admin-assistant"

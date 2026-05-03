@@ -178,6 +178,20 @@ class PipelineRunner:
                 log(f"WARNING: Object detection failed: {e}")
                 # We do not fail the whole job if object detection fails.
 
+            # ── Step 5: Pixel-only panorama insights (HSV, k-means palette, bright regions) ──
+            set_step("panorama_insights")
+            log("Computing panorama insights (lighting, palette, bright regions)...")
+            try:
+                from .panorama_insights import analyze_panorama_pixels
+
+                insights = analyze_panorama_pixels(Path(source_for_inference))
+                insights_path = job_dir / "panorama_insights.json"
+                with open(insights_path, "w", encoding="utf-8") as f:
+                    json.dump(insights, f, indent=2)
+                log("Saved panorama_insights.json")
+            except Exception as e:
+                log(f"WARNING: Panorama insights failed: {e}")
+
             # ── Done ─────────────────────────────────────────────────────
             ReconstructionJob.objects.filter(pk=self.job_id).update(
                 state="completed",

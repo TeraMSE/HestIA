@@ -134,6 +134,7 @@ def property_job_status(request: HttpRequest, property_id: int) -> JsonResponse:
             "panorama_url": f"/api/jobs/{job.id}/artifact/panorama/",
             "floor_polygon_url": f"/api/jobs/{job.id}/floor_polygon/",
             "detections_url": f"/api/jobs/{job.id}/artifact/detections/",
+            "panorama_insights_url": f"/api/jobs/{job.id}/artifact/panorama_insights/",
         },
     })
 
@@ -175,6 +176,7 @@ def job_status(request: HttpRequest, job_id: str) -> JsonResponse:
                 "panorama_url": f"/api/jobs/{job.id}/artifact/panorama/",
                 "floor_polygon_url": f"/api/jobs/{job.id}/floor_polygon/",
                 "detections_url": f"/api/jobs/{job.id}/artifact/detections/",
+                "panorama_insights_url": f"/api/jobs/{job.id}/artifact/panorama_insights/",
             }
 
         if job.state == "failed":
@@ -321,6 +323,92 @@ def artifact_detections(request: HttpRequest, job_id: str) -> FileResponse:
 
         return FileResponse(
             detections_path.open("rb"),
+            content_type="application/json",
+            as_attachment=False,
+        )
+
+    except ReconstructionJob.DoesNotExist:
+        return JsonResponse({"error": "Job not found"}, status=404)
+
+
+def _resolve_panorama_path_for_insights(job: ReconstructionJob):
+    """
+    Return the first readable panorama on disk (aligned preprocessed, then input/*).
+    More defensive than aligned_image_path() alone (case variants, any image in input/).
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    jd = job.job_dir()
+    if not jd.is_dir():
+        log.warning("[insights] job_dir missing: %s", jd)
+        return None
+
+    pre = jd / "preprocessed"
+    if pre.is_dir():
+        for p in sorted(pre.glob("*_aligned_rgb.png"), reverse=True):
+            if p.is_file() and p.stat().st_size > 0:
+                return p
+
+    inp = jd / "input"
+    if not inp.is_dir():
+        return None
+    for name in (
+        "panorama.png",
+        "panorama.jpg",
+        "panorama.jpeg",
+        "panorama.webp",
+        "panorama.PNG",
+        "panorama.JPG",
+    ):
+        p = inp / name
+        if p.is_file() and p.stat().st_size > 0:
+            return p
+    for p in sorted(inp.iterdir()):
+        if not p.is_file() or p.stat().st_size == 0:
+            continue
+        if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
+            return p
+    return None
+
+
+@require_GET
+def artifact_panorama_insights(request: HttpRequest, job_id: str) -> FileResponse | JsonResponse:
+    """GET /api/jobs/<uuid>/artifact/panorama_insights/ — lighting / palette / bright-region JSON."""
+    try:
+        job = get_object_or_404(ReconstructionJob, pk=job_id)
+
+        if job.state != "completed":
+            return JsonResponse({"error": "Job not completed"}, status=409)
+
+        insights_path = job.job_dir() / "panorama_insights.json"
+        if not insights_path.is_file():
+            src = _resolve_panorama_path_for_insights(job)
+            if src is None:
+                # Last resort: model helper (glob panorama.*)
+                ap = job.aligned_image_path()
+                if ap is not None and ap.is_file():
+                    src = ap
+            if src is None or not src.is_file():
+                return JsonResponse(
+                    {
+                        "error": "No panorama image found under this job (expected input/panorama.* or preprocessed alignment).",
+                        "job_dir": str(job.job_dir()),
+                    },
+                    status=404,
+                )
+            try:
+                from .pipeline.panorama_insights import analyze_panorama_pixels
+
+                data = analyze_panorama_pixels(src)
+                insights_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(insights_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+            except Exception as e:
+                return JsonResponse({"error": repr(e)}, status=500)
+
+        return FileResponse(
+            insights_path.open("rb"),
             content_type="application/json",
             as_attachment=False,
         )
