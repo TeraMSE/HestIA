@@ -7,12 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Users, UserCheck, UserX, Loader2, Heart,
-  Play, CheckCircle,
+  Play, CheckCircle, Box,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CohabReport } from "./CohabReport";
+import { CohabVisualReplay } from "./CohabVisualReplay";
 
-type Phase = "select" | "running" | "report";
+type Phase = "select" | "running" | "report" | "replay";
 
 type PartnerCandidate = InterestedUser;
 
@@ -241,14 +242,20 @@ export function RoommatePanel() {
           {/* Live event feed */}
           {events.length > 0 && (
             <div className="bg-[#0d0d1a] border border-gray-800 rounded-2xl p-3 max-h-72 overflow-y-auto custom-scrollbar space-y-1.5">
-              {events.slice(-40).map((ev, i) => {
-                const isConflict = ev.outcome_type === "blocked";
-                const isFriction = ev.outcome_type === "success_with_friction";
+              {events.slice(-40).map((ev: any, i) => {
+                const isCohab = ev.event_type === "cohabitation_tick";
+                const hasConflicts = isCohab && ev.conflicts && ev.conflicts.length > 0;
+                // Legacy solo event fields
+                const isConflict = !isCohab && ev.outcome_type === "blocked";
+                const isFriction = !isCohab && ev.outcome_type === "success_with_friction";
+
                 return (
                   <div
                     key={i}
-                    className={`text-xs px-3 py-1.5 rounded-lg border ${
-                      isConflict
+                    className={`text-xs px-3 py-2 rounded-lg border ${
+                      hasConflicts
+                        ? "bg-amber-950/20 border-amber-900/30"
+                        : isConflict
                         ? "bg-red-950/20 border-red-900/30 text-red-300"
                         : isFriction
                         ? "bg-amber-950/20 border-amber-900/30 text-amber-300"
@@ -256,9 +263,24 @@ export function RoommatePanel() {
                     }`}
                   >
                     <span className="font-mono text-gray-600 mr-2">
-                      {ev.time_label ?? `T${ev.tick}`}
+                      {`H${ev.tick ?? i}`}
                     </span>
-                    {ev.narrative ?? ev.action ?? ev.msg ?? "…"}
+                    {isCohab ? (
+                      <span className="space-y-0.5">
+                        <span className="text-violet-300 font-medium">{ev.persona_a_name}: </span>
+                        <span className="text-gray-300">{ev.persona_a_action}</span>
+                        <span className="text-gray-600 mx-1">|</span>
+                        <span className="text-cyan-300 font-medium">{ev.persona_b_name}: </span>
+                        <span className="text-gray-300">{ev.persona_b_action}</span>
+                        {hasConflicts && (
+                          <span className="ml-2 text-amber-400">
+                            ⚠ {ev.conflicts[0]?.description}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      ev.narrative ?? ev.action ?? ev.content ?? "…"
+                    )}
                   </div>
                 );
               })}
@@ -281,7 +303,17 @@ export function RoommatePanel() {
           {/* Completion bar */}
           <div className="px-6 py-4 flex items-center gap-3 bg-emerald-950/20 border-b border-emerald-900/20">
             <CheckCircle className="h-5 w-5 text-emerald-400" />
-            <p className="text-sm text-emerald-400 font-medium">Simulation complete — see your report below.</p>
+            <p className="text-sm text-emerald-400 font-medium flex-1">Simulation complete — see your report below.</p>
+            {runId && (
+              <Button
+                size="sm"
+                onClick={() => setPhase("replay")}
+                className="rounded-xl bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-violet-300 text-xs gap-1.5 shrink-0"
+              >
+                <Box className="h-3.5 w-3.5" />
+                Watch 3D Replay
+              </Button>
+            )}
           </div>
 
           {/* Inline report */}
@@ -297,6 +329,18 @@ export function RoommatePanel() {
             />
           </div>
         </>
+      )}
+
+      {/* ── Phase: 3D Visual Replay ────────────────────────────────────── */}
+      {phase === "replay" && runId && (
+        <div className="flex-1 min-h-0 p-3">
+          <CohabVisualReplay
+            runId={runId}
+            personaAName={personaAName}
+            personaBName={personaBName}
+            onBack={() => setPhase("report")}
+          />
+        </div>
       )}
     </OverlayPanel>
   );

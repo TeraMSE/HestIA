@@ -702,8 +702,33 @@ def run_cohabitation_simulation(run_id: str) -> None:
         )
         _update(96)
 
-        # Step 9: Persist
-        full_result = {**result, "mediation": mediation_result, "score": score.model_dump()}
+        # Step 9: Build visual replay frames for the 3D viewer
+        from social_sim.engine.frame_builder import FrameBuilder
+        from social_sim.engine.layout_builder import build_default_layout
+        try:
+            cohab_layout = build_default_layout()
+            frame_builder = FrameBuilder(layout=cohab_layout)
+            cohab_replay = frame_builder.build_cohab_sequence(
+                run_id=str(run_id),
+                persona_a=persona_a.to_dict(),
+                persona_b=persona_b.to_dict(),
+                joint_events=partial_events,  # already the cohabitation tick events
+                compatibility_result=compat_result,
+                mediation=None,  # mediation handled separately in full_result
+            )
+            cohab_replay_data = cohab_replay.model_dump()
+        except Exception as frame_exc:
+            logger.warning("[CohabSim] Frame builder failed (non-fatal): %s", frame_exc)
+            cohab_replay_data = {}
+        _update(98)
+
+        # Step 10: Persist
+        full_result = {
+            **result,
+            "mediation": mediation_result,
+            "score": score.model_dump(),
+            "cohab_replay": cohab_replay_data,
+        }
         mediation_summary = ""
         if mediation_result.get("mediations"):
             mediation_summary = str(
@@ -724,6 +749,7 @@ def run_cohabitation_simulation(run_id: str) -> None:
         )
         logger.info("[CohabSim] Run %s completed: score=%.2f grade=%s",
                     run_id, score.overall_score, score.grade)
+
 
     except Exception as exc:
         err_text = traceback.format_exc()

@@ -59,6 +59,15 @@ class LifeSimulationAgent:
         self.flags: List[Dict[str, Any]] = []
         self.satisfaction_trajectory: List[float] = [self.satisfaction]
 
+    def set_roommate_context(
+        self,
+        roommate_persona: "Persona",
+        roommate_last_event: "SimulationEvent | None" = None,
+    ) -> None:
+        """Inject the other persona's last action so this agent reasons about shared living."""
+        self._roommate_persona = roommate_persona
+        self._roommate_last_event = roommate_last_event
+
     def perceive(self) -> List[str]:
         observations: List[str] = []
 
@@ -69,11 +78,11 @@ class LifeSimulationAgent:
             if trait == "noise_sensitivity":
                 if severity == "high":
                     observations.append(
-                        "The constant noise from outside is really bothering me, I can't concentrate."
+                        "The ambient noise level in the apartment is high and genuinely bothers you."
                     )
                 elif severity == "medium":
                     observations.append(
-                        "The ambient noise is distracting and affects my comfort."
+                        "There is noticeable noise in the apartment that affects your comfort."
                     )
                 else:
                     observations.append(
@@ -83,34 +92,58 @@ class LifeSimulationAgent:
             elif trait == "thermal_sensitivity":
                 if severity == "high":
                     observations.append(
-                        "I'm freezing in this apartment, the heating is clearly insufficient."
+                        "The apartment temperature feels uncomfortable — heating or cooling may be needed."
                     )
                 elif severity == "medium":
                     observations.append(
-                        "The temperature feels uncomfortable and slightly too cold."
+                        "The temperature feels slightly off from your ideal range."
                     )
                 else:
                     observations.append(
-                        "The temperature is not ideal, but I can still tolerate it."
+                        "The temperature is not ideal, but you can still tolerate it."
                     )
 
             elif trait == "smoker":
                 observations.append(
-                    "I can't smoke inside — I'll need to find another solution."
+                    "You cannot smoke inside — you need to step outside."
                 )
 
             elif trait == "cleanliness":
-                observations.append("The apartment isn't as clean as I'd like.")
+                observations.append("The apartment isn't as clean as you'd like it to be.")
 
-        daily_cycle = [
-            "I am cooking a simple meal and noticing how practical the kitchen feels.",
-            "I am working from home and paying attention to comfort and focus.",
-            "I am relaxing in the living room and evaluating the atmosphere.",
-            "I am showering and thinking about convenience and hygiene.",
-            "I am preparing to sleep and evaluating nighttime comfort.",
-            "I am having breakfast and thinking about my morning routine.",
+        # Varied shared-living daily scenarios (not just apartment mismatch)
+        shared_scenarios = [
+            "You are in the kitchen preparing a meal and thinking about how the shared space feels.",
+            "You are working from home in your room, noticing sounds from the rest of the apartment.",
+            "You are relaxing in the living room, which you share with your roommate.",
+            "You are in the bathroom and thinking about the morning routine schedule.",
+            "You are winding down for the evening and aware of your roommate's activity.",
+            "You are having breakfast and thinking about the rhythm of living with someone else.",
+            "You just came home and noticed how your roommate left the shared areas.",
+            "You are trying to study or concentrate and notice what your roommate is doing.",
+            "You pass through the hallway and briefly interact with your roommate.",
+            "You are in your room but can hear what is happening in the rest of the apartment.",
+            "It is mid-morning and you and your roommate are both home.",
+            "You are thinking about whether the apartment routines feel sustainable.",
         ]
-        observations.append(daily_cycle[self.tick % 6])
+        observations.append(shared_scenarios[self.tick % len(shared_scenarios)])
+
+        # Cohabitation-aware: inject what the other roommate just did
+        if hasattr(self, "_roommate_persona") and self._roommate_persona:
+            rp = self._roommate_persona
+            re = getattr(self, "_roommate_last_event", None)
+            if re:
+                observations.append(
+                    f"Your roommate {rp.name} just did: \"{re.action}\". "
+                    f"They feel: \"{re.feeling}\"."
+                )
+            else:
+                smoker_note = "is a smoker" if rp.traits.get("smoker") else "is a non-smoker"
+                early_note = "wakes up early" if rp.traits.get("early_riser") else "is a night owl"
+                observations.append(
+                    f"Your roommate {rp.name} has moved in. They {smoker_note} and {early_note}."
+                )
+
         return observations
 
     def reason(self, observations: List[str]) -> Dict[str, Any]:
@@ -125,18 +158,30 @@ class LifeSimulationAgent:
             else "No recent memories."
         )
 
+        # Build roommate context for the prompt
+        roommate_context = ""
+        if hasattr(self, "_roommate_persona") and self._roommate_persona:
+            rp = self._roommate_persona
+            roommate_context = (
+                f"\nYour roommate {rp.name} traits: "
+                f"smoker={rp.traits.get('smoker', False)}, "
+                f"early_riser={rp.traits.get('early_riser', False)}, "
+                f"cleanliness={rp.traits.get('cleanliness', 0.5):.1f}, "
+                f"noise_sensitivity={rp.traits.get('noise_sensitivity', 0.5):.1f}."
+            )
+
         system_prompt = self.persona.to_system_prompt()
         user_message = (
-            f"Hour {self.tick} in the apartment.\n"
-            "Your observations:\n"
+            f"Hour {self.tick} living in this shared apartment.{roommate_context}\n"
+            "Your observations this hour:\n"
             f"{chr(10).join(f'- {o}' for o in observations)}\n\n"
             f"Recent memories: {memory_text}\n"
             f"Current satisfaction: {self.satisfaction:.0%}\n\n"
-            "Based on your personality, respond with:\n"
-            "1. How you feel right now (one short sentence)\n"
-            "2. Your comfort level (integer 0-100)\n"
-            "3. Is there a recurring problem worth flagging? (yes or no, and brief reason if yes)\n"
-            "4. One action you take this hour"
+            "Based on your personality and the shared-living context, respond with:\n"
+            "1. How you feel right now about living with your roommate (one short sentence)\n"
+            "2. Your comfort level this hour (integer 0-100)\n"
+            "3. Is there a recurring problem worth flagging about the cohabitation? (yes or no, and brief reason if yes)\n"
+            "4. One specific action you take this hour — make it varied and realistic for shared apartment life"
         )
 
         schema = {
@@ -150,11 +195,8 @@ class LifeSimulationAgent:
             system_prompt=system_prompt,
             user_message=user_message,
             output_schema=schema,
-            temperature=0.2,
+            temperature=0.7,  # Higher than 0.2 for more variation in actions
         )
-
-        logger.info("Groq rate-limit precaution: sleeping 1s between LLM calls.")
-        time.sleep(1)
 
         comfort_level = reasoning.get("comfort_level", 50)
         try:

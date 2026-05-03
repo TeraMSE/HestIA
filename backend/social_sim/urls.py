@@ -77,4 +77,9 @@ urlpatterns = [
         views.CohabStatusView.as_view(),
         name="social-sim-cohab-status",
     ),
+    path(
+        "cohab/<uuid:run_id>/replay/",
+        views.CohabReplayView.as_view(),
+        name="social-sim-cohab-replay",
+    ),
 ]

@@ -132,4 +132,10 @@ export const cohabApi = {
     const res = await api.get(`/social-sim/cohab/${runId}/`);
     return res.data;
   },
+
+  async getReplay(runId: string): Promise<import("./socialSimApi").VisualSimulationReplay> {
+    const res = await api.get(`/social-sim/cohab/${runId}/replay/`);
+    return res.data;
+  },
 };
+

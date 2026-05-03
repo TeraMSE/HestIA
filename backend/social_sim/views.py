@@ -1046,3 +1046,38 @@ class CohabStatusView(APIView):
             status=status.HTTP_200_OK,
         )
 
+
+class CohabReplayView(APIView):
+    """
+    GET /api/v1/social-sim/cohab/{run_id}/replay/
+
+    Returns the full VisualSimulationReplay payload (frames + apartment layout)
+    for the 3D cohabitation viewer, once the run is completed.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request, run_id: str) -> Response:
+        from django.db.models import Q
+        try:
+            run = SocialSimRun.objects.get(
+                Q(user=request.user) | Q(user_b=request.user),
+                pk=run_id,
+            )
+        except SocialSimRun.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if run.status != "completed":
+            return Response(
+                {"detail": f"Run is not completed yet (status: {run.status})."},
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        cohab_replay = (run.result or {}).get("cohab_replay")
+        if not cohab_replay:
+            return Response(
+                {"detail": "Replay data not available for this run."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(cohab_replay, status=status.HTTP_200_OK)
