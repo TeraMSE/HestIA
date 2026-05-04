@@ -84,17 +84,32 @@ class UnifiedLLMClient:
         temperature: float = 0.7,
         use_fast_model: bool = False,
     ) -> str:
-        try:
-            if self.backend == "groq":
-                return self._complete_groq(system_prompt, user_message, temperature, use_fast_model)
-            if self.backend == "tokenfactory":
-                return self._complete_tokenfactory(system_prompt, user_message, temperature, use_fast_model)
-            return self._complete_ollama(system_prompt, user_message, temperature)
-        except LLMCallError:
-            raise
-        except Exception as exc:
-            logger.error("LLM completion failed: %s", exc, exc_info=True)
-            raise LLMCallError(f"LLM completion failed: {exc}") from exc
+        # Build ordered fallback chain starting from the configured backend
+        chain = [self.backend]
+        for fallback in ("tokenfactory", "groq", "ollama"):
+            if fallback not in chain:
+                if fallback == "tokenfactory" and not self.tokenfactory_api_key:
+                    continue
+                if fallback == "groq" and not self.groq_api_key:
+                    continue
+                chain.append(fallback)
+
+        last_exc: Exception = LLMCallError("No backends available")
+        for backend in chain:
+            try:
+                if backend == "groq":
+                    return self._complete_groq(system_prompt, user_message, temperature, use_fast_model)
+                if backend == "tokenfactory":
+                    return self._complete_tokenfactory(system_prompt, user_message, temperature, use_fast_model)
+                return self._complete_ollama(system_prompt, user_message, temperature)
+            except LLMCallError as exc:
+                logger.warning("Backend %s failed (%s) — trying next fallback", backend, exc)
+                last_exc = exc
+            except Exception as exc:
+                logger.error("Backend %s unexpected error: %s", backend, exc, exc_info=True)
+                last_exc = LLMCallError(f"LLM completion failed: {exc}")
+
+        raise LLMCallError(f"All LLM backends failed. Last error: {last_exc}") from last_exc
 
     def complete_structured(
         self,

@@ -346,7 +346,7 @@ def call_tokenfactory_vision(
     import base64
 
     cfg = LLMConfig.from_env()
-    if cfg.backend != LLMBackend.TOKENFACTORY.value:
+    if LLMBackend.TOKENFACTORY.value not in cfg.provider_chain:
         raise LLMCallError(
             "call_tokenfactory_vision requires TokenFactory backend. "
             "Set TOKENFACTORY_API_KEY in your .env."

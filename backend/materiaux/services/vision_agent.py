@@ -106,7 +106,7 @@ Retourne UNIQUEMENT ce JSON valide (sans texte ni markdown):
         )
         # Nettoyage robuste du JSON
         raw = self._clean_json_response(raw)
-        result = json.loads(raw)
+        result = json.loads(raw, strict=False)
         return self._validate_and_fix(result)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -114,13 +114,17 @@ Retourne UNIQUEMENT ce JSON valide (sans texte ni markdown):
     # ─────────────────────────────────────────────────────────────────────────
     def _clean_json_response(self, raw: str) -> str:
         """Nettoie la réponse du LLM pour obtenir un JSON valide."""
+        import re
         # Retirer les balises markdown
         raw = raw.replace("```json", "").replace("```", "").strip()
         # Trouver le début et la fin du JSON
         start = raw.find("{")
         end = raw.rfind("}") + 1
         if start != -1 and end > start:
-            return raw[start:end]
+            raw = raw[start:end]
+        
+        # Nettoyer les séquences d'échappement invalides (ex: \e, \s)
+        raw = re.sub(r'\\(?![/\\bfnrt"u])', r'\\\\', raw)
         return raw
 
     # ─────────────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ Pillow>=10.0.0
 torch>=2.0.0
 torchvision>=0.15.0
 numpy>=1.24.0
+pandas>=2.0.0
 scipy>=1.10.0
 shapely>=2.0.0
 scikit-learn>=1.2.0
@@ -39,3 +40,5 @@ openrouteservice>=2.3.3
 reportlab>=4.2.0
 # Web search for appliance specs
 duckduckgo-search>=5.3.1
+# RAG assistant – FAISS vector similarity search
+faiss-cpu>=1.7.4

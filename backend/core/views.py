@@ -233,14 +233,21 @@ class OverpassProxyView(APIView):
             "Accept": "application/json",
         }
 
+        last_error = "unknown"
         for endpoint in self.ENDPOINTS:
             try:
                 req = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=12) as resp:
+                with urllib.request.urlopen(req, timeout=25) as resp:
                     data = json_module.loads(resp.read().decode("utf-8"))
                     cache.set(cache_key, data, timeout=300)  # cache for 5 minutes
                     return Response(data)
-            except Exception:
+            except Exception as exc:
+                last_error = str(exc)
+                import logging
+                logging.getLogger(__name__).warning("Overpass mirror %s failed: %s", endpoint, exc)
                 continue  # Try next mirror
 
-        return Response({"error": "All Overpass mirrors failed."}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(
+            {"error": f"All Overpass mirrors failed. Last error: {last_error}"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )

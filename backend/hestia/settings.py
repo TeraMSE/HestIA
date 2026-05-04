@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "materiaux",
     "appliances",
     "personality",
+    "rag_assistant",
 ]
 
 # Ollama social simulation config

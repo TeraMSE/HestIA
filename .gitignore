@@ -41,6 +41,7 @@ backend/checkpoints/gdino/
 backend/noise_cache/
 backend/neighborhood_cache/
 backend/travel_cache/
+backend/thermal_cache/
 noise_cache/
 neighborhood_cache/
 travel_cache/

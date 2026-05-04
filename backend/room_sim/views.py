@@ -46,13 +46,13 @@ def job_start(request: HttpRequest) -> JsonResponse:
         checkpoint = request.POST.get("checkpoint", "")
         property_id = request.POST.get("property_id", "")
 
-        # Resolve property FK
+        # Resolve property FK (only attempt if property_id looks numeric)
         from core.models import Property as PropertyModel
         property_obj = None
-        if property_id:
+        if property_id and property_id.isdigit():
             try:
-                property_obj = PropertyModel.objects.get(id=property_id)
-            except PropertyModel.DoesNotExist:
+                property_obj = PropertyModel.objects.get(id=int(property_id))
+            except (PropertyModel.DoesNotExist, ValueError):
                 pass
 
         job = ReconstructionJob.objects.create(

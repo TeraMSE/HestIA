@@ -694,9 +694,14 @@ class ThermalAssessmentView(APIView):
 
             return Response(report_payload, status=status.HTTP_200_OK)
         except Exception as exc:  # noqa: BLE001
+            import logging
+            import traceback
+            logging.getLogger(__name__).error(
+                "Thermal assessment failed: %s\n%s", exc, traceback.format_exc()
+            )
             return Response(
                 {"detail": f"Thermal assessment failed: {str(exc)}"},
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_502_BAD_GATEWAY,
             )
 
 

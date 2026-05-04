@@ -565,81 +565,81 @@ from sentence_transformers import SentenceTransformer
 # ── Coefficients de gamme (exporté pour import dans main.py) ─────────────────
 GAMME_CONFIG = {
     "bas": {
-        "label": "Économique",
+        "label": "Economy",
         "coeff_prix": 0.75,
         "coeff_qualite": 0.85,
-        "description": "Matériaux standards, marques locales tunisiennes, rapport qualité/prix optimisé",
+        "description": "Standard materials, local Tunisian brands, optimised value for money",
     },
     "moyenne": {
-        "label": "Intermédiaire",
+        "label": "Mid-range",
         "coeff_prix": 1.0,
         "coeff_qualite": 1.0,
-        "description": "Matériaux de qualité standard, marques reconnues sur le marché tunisien",
+        "description": "Standard-quality materials, recognised brands on the Tunisian market",
     },
     "haute": {
         "label": "Premium",
         "coeff_prix": 1.35,
         "coeff_qualite": 1.2,
-        "description": "Matériaux haut de gamme, marques internationales, finitions premium",
+        "description": "High-end materials, international brands, premium finishes",
     },
 }
 
 # ── Coûts main d'œuvre Tunisie 2026 (TND/m²) ────────────────────────────────
 MAIN_OEUVRE_TUNISIE_2026 = {
     "gros_oeuvre": {
-        "label": "Gros Œuvre (structure, maçonnerie, béton armé)",
+        "label": "Structural Work (structure, masonry, reinforced concrete)",
         "cout_m2": {"bas": 280, "moyenne": 380, "haute": 520},
-        "description": "Fondations, poteaux, poutres, dalles, maçonnerie — équipe maçon chef + 2 aides",
-        "source": "Barème UTICA BTP Tunisie 2026",
+        "description": "Foundations, columns, beams, slabs, masonry — head mason + 2 assistants",
+        "source": "UTICA BTP Tunisia Schedule 2026",
     },
     "etancheite": {
-        "label": "Étanchéité & Isolation",
+        "label": "Waterproofing & Insulation",
         "cout_m2": {"bas": 45, "moyenne": 65, "haute": 90},
-        "description": "Application membranes, crépi imperméabilisant, isolation toiture",
-        "source": "Tarif applicateurs agréés SIKA/WEBER Tunisie",
+        "description": "Membrane application, waterproof render, roof insulation",
+        "source": "Approved SIKA/WEBER applicator rates, Tunisia",
     },
     "revetements_sol": {
-        "label": "Revêtements Sol (carrelage, chape)",
+        "label": "Floor Coverings (tiling, screed)",
         "cout_m2": {"bas": 30, "moyenne": 45, "haute": 70},
-        "description": "Pose carrelage, ragréage, joints — carreleur qualifié",
-        "source": "Syndicat carreleurs Tunis 2026",
+        "description": "Tile laying, screeding, grouting — qualified tiler",
+        "source": "Tunis Tilers Union 2026",
     },
     "revetements_mur": {
-        "label": "Revêtements Mur (enduit, faïence, peinture)",
+        "label": "Wall Coverings (render, wall tiles, paint)",
         "cout_m2": {"bas": 20, "moyenne": 32, "haute": 50},
-        "description": "Enduit plâtre, faïence SDB, peinture — peintre + plâtrier",
-        "source": "Barème UTICA BTP Tunisie 2026",
+        "description": "Plaster render, bathroom wall tiles, paint — painter + plasterer",
+        "source": "UTICA BTP Tunisia Schedule 2026",
     },
     "menuiserie": {
-        "label": "Menuiserie (portes, fenêtres, volets)",
+        "label": "Joinery (doors, windows, shutters)",
         "cout_m2": {"bas": 25, "moyenne": 40, "haute": 65},
-        "description": "Pose et calage menuiseries aluminium/PVC/bois",
-        "source": "Tarif poseurs menuiserie Tunisie 2026",
+        "description": "Installation and fitting of aluminium/PVC/wood joinery",
+        "source": "Tunisia Joinery Installers Rate 2026",
     },
     "plomberie": {
-        "label": "Plomberie & Sanitaire",
+        "label": "Plumbing & Sanitary",
         "cout_m2": {"bas": 35, "moyenne": 55, "haute": 85},
-        "description": "Installation réseaux eau potable, évacuation, sanitaires — plombier qualifié",
-        "source": "FNAT Plomberie Tunisie 2026",
+        "description": "Drinking water network, drainage, sanitary fixtures — qualified plumber",
+        "source": "FNAT Plumbing Tunisia 2026",
     },
     "electricite": {
-        "label": "Électricité (tableau, circuits, prises)",
+        "label": "Electrical (panel, circuits, outlets)",
         "cout_m2": {"bas": 30, "moyenne": 48, "haute": 75},
-        "description": "Câblage, tableau électrique, prises, interrupteurs — électricien STEG agréé",
-        "source": "Tarif électriciens agréés STEG 2026",
+        "description": "Wiring, electrical panel, outlets, switches — STEG-approved electrician",
+        "source": "STEG-approved electrician rates 2026",
     },
     "climatisation": {
-        "label": "Installation Climatisation & CVC",
-        "unite": "par unité",
+        "label": "Air Conditioning & HVAC Installation",
+        "unite": "per unit",
         "cout_unite": {"bas": 280, "moyenne": 420, "haute": 650},
-        "description": "Pose split mural: percement, support, connexion frigorifique, mise en service",
-        "source": "Techniciens CVC certifiés Tunisie 2026",
+        "description": "Wall split installation: drilling, bracket, refrigerant connection, commissioning",
+        "source": "Certified HVAC technicians Tunisia 2026",
     },
     "finitions": {
-        "label": "Finitions (faux plafond, corniche, garde-corps)",
+        "label": "Finishes (false ceiling, cornice, railings)",
         "cout_m2": {"bas": 30, "moyenne": 50, "haute": 90},
-        "description": "Staff plâtre, faux plafond BA13, menuiserie intérieure fine",
-        "source": "Artisans bâtiment Tunis/Sfax 2026",
+        "description": "Plaster staff, BA13 false ceiling, fine interior joinery",
+        "source": "Building craftsmen Tunis/Sfax 2026",
     },
 }
 
@@ -756,10 +756,10 @@ class MateriauxAgent:
 
         if climat_lower == "cote":
             coeff_clim = 1.10
-            coeff_label = "+10% humidité marine"
+            coeff_label = "+10% coastal humidity"
         elif climat_lower in ("sahel", "interieur"):
             coeff_clim = 1.15
-            coeff_label = "+15% chaleur sèche"
+            coeff_label = "+15% dry heat"
         else:
             coeff_clim = 1.05
             coeff_label = "+5% standard"
@@ -824,13 +824,13 @@ class MateriauxAgent:
             btu_sejour = round(s_sejour * BTU_PAR_M2 * coeff_clim)
             puissance_s, nb_s = self._choisir_puissance_clim(btu_sejour)
             resultats_clim.append({
-                "piece": "Séjour / Salon",
+                "piece": "Living Room / Lounge",
                 "surface_m2": s_sejour,
                 "btu_calcule": btu_sejour,
                 "puissance_btu": puissance_s,
                 "nb_unites": nb_s,
                 "justification": (
-                    f"Estimation: {s_sejour} m² (40% de {S} m²) × {BTU_PAR_M2} × {coeff_clim} = {btu_sejour:,} BTU"
+                    f"Estimate: {s_sejour} m² (40% of {S} m²) × {BTU_PAR_M2} × {coeff_clim} = {btu_sejour:,} BTU"
                 ),
             })
 
@@ -839,7 +839,7 @@ class MateriauxAgent:
                 btu_ch = round(s_chambre_moy * BTU_PAR_M2 * coeff_clim)
                 puissance_ch, nb_ch = self._choisir_puissance_clim(btu_ch)
                 resultats_clim.append({
-                    "piece": f"Chambre {i}",
+                    "piece": f"Bedroom {i}",
                     "surface_m2": s_chambre_moy,
                     "btu_calcule": btu_ch,
                     "puissance_btu": puissance_ch,
@@ -919,13 +919,13 @@ class MateriauxAgent:
 
         frais_chantier = round(total * 0.08)
         detail["frais_chantier"] = {
-            "label": "Frais chantier, transport & imprévus (8%)",
+            "label": "Site costs, transport & contingencies (8%)",
             "quantite": 1,
-            "unite": "forfait",
+            "unite": "lump sum",
             "cout_unitaire_tnd": frais_chantier,
             "cout_total_tnd": frais_chantier,
-            "description": "Transport matériaux, nettoyage chantier, imprévus techniques",
-            "source": "Estimation standard BTP Tunisie",
+            "description": "Material transport, site cleaning, technical contingencies",
+            "source": "Standard BTP Tunisia estimate",
         }
         total += frais_chantier
 
@@ -934,11 +934,11 @@ class MateriauxAgent:
             "total_tnd": total,
             "cout_m2_mo": round(total / max(S, 1), 0),
             "gamme": GAMME_CONFIG[gamme_key]["label"],
-            "source_globale": "Barèmes UTICA BTP, FNAT, Syndicats professionnels Tunisie 2026",
+            "source_globale": "UTICA BTP, FNAT, Professional Trade Unions Tunisia 2026",
             "note": (
-                "Estimation basée sur les tarifs du marché tunisien 2026. "
-                "Les prix réels peuvent varier selon la disponibilité des artisans, "
-                "la région et la complexité du chantier (±15%)."
+                "Estimate based on 2026 Tunisian market rates. "
+                "Actual prices may vary depending on craftsman availability, "
+                "region and site complexity (±15%)."
             ),
         }
 
@@ -1105,17 +1105,17 @@ class MateriauxAgent:
     def _justifier_choix_materiau(self, mat: dict, gamme: str, climat: str) -> str:
         justifs = []
         if mat.get("etancheite") and climat == "cote":
-            justifs.append("Recommandé pour climat côtier (humidité marine, sel)")
+            justifs.append("Recommended for coastal climate (marine humidity, salt)")
         if mat.get("anti_moisissure"):
-            justifs.append("Protection anti-moisissures essentielle en Tunisie")
+            justifs.append("Essential anti-mould protection in Tunisia")
         if mat.get("anti_fissure"):
-            justifs.append("Résistance aux fissures (variations thermiques importantes)")
+            justifs.append("Crack resistance (significant thermal variations)")
         gamme_info = GAMME_CONFIG.get(gamme, GAMME_CONFIG["moyenne"])
-        justifs.append(f"Gamme {gamme_info['label']}: {gamme_info['description']}")
+        justifs.append(f"Grade {gamme_info['label']}: {gamme_info['description']}")
         marque = mat.get("marque_tn", "")
         if marque:
-            justifs.append(f"Disponible chez: {marque}")
-        return " · ".join(justifs) if justifs else "Matériau standard conforme DTT Tunisie"
+            justifs.append(f"Available at: {marque}")
+        return " · ".join(justifs) if justifs else "Standard material compliant with DTT Tunisia"
 
     # ─── ANALYSE LLM ────────────────────────────────────────────────────────
 
@@ -1147,20 +1147,20 @@ class MateriauxAgent:
             ensure_ascii=False, indent=2
         )
 
-        prompt = f"""Tu es un expert en construction tunisienne certifié DTT, en 2026.
+        prompt = f"""You are a DTT-certified Tunisian construction expert, 2026.
 
-DONNÉES DU PROJET:
-- Région: {region} (Climat: {climat}) | Gamme: {gamme_label}
-- Surface: {plan_data.get('surface_habitable_m2')} m² | Chambres: {plan_data.get('nb_chambres')} | SDB: {plan_data.get('nb_salles_bain')}
-- Budget: {budget:,.0f} TND | Matériaux: {cout_mat:,.0f} TND | MO: {cout_mo:,.0f} TND | TOTAL: {cout_total_projet:,.0f} TND
+PROJECT DATA:
+- Region: {region} (Climate: {climat}) | Grade: {gamme_label}
+- Surface: {plan_data.get('surface_habitable_m2')} m² | Bedrooms: {plan_data.get('nb_chambres')} | Bathrooms: {plan_data.get('nb_salles_bain')}
+- Budget: {budget:,.0f} TND | Materials: {cout_mat:,.0f} TND | Labour: {cout_mo:,.0f} TND | TOTAL: {cout_total_projet:,.0f} TND
 
-CLIMATISATION PAR PIÈCE:
+AIR CONDITIONING BY ROOM:
 {clim_resume}
 
-TOP 5 POSTES:
+TOP 5 COST ITEMS:
 {top5_json}
 
-Rédige 4 paragraphes: 1) Justification climatique 2) Justification climatisation BTU 3) Analyse budget 4) Recommandations locales tunisiennes. Max 500 mots."""
+Write 4 paragraphs: 1) Climate justification 2) BTU air conditioning justification 3) Budget analysis 4) Local Tunisian recommendations. Max 500 words."""
 
         text = call_tokenfactory(
             messages=[{"role": "user", "content": prompt}],

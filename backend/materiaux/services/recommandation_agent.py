@@ -20,25 +20,25 @@ class RecommandationAgent:
             statut = "OPTIMAL"
             emoji = "✅"
             couleur = "#10b981"
-            message_court = "Budget parfaitement calibré — construction durable possible!"
+            message_court = "Budget perfectly calibrated — sustainable construction is achievable!"
         elif ratio < 0.95:
             deficit = cout_total - budget
             surface_possible = round(surface * (budget / cout_total) * 0.92)
-            statut = "INSUFFISANT"
+            statut = "INSUFFICIENT"
             emoji = "⚠️"
             couleur = "#f59e0b"
             message_court = (
-                f"Déficit de {deficit:,.0f} TND. "
-                f"Surface recommandée avec ce budget: ~{surface_possible} m²"
+                f"Deficit of {deficit:,.0f} TND. "
+                f"Recommended surface with this budget: ~{surface_possible} m²"
             )
         else:
             excedent = budget - cout_total
-            statut = "EXCÉDENT"
+            statut = "SURPLUS"
             emoji = "🎉"
             couleur = "#3b82f6"
             message_court = (
-                f"Excédent de {excedent:,.0f} TND — "
-                f"Investir dans finitions premium et étanchéité renforcée"
+                f"Surplus of {excedent:,.0f} TND — "
+                f"Invest in premium finishes and reinforced waterproofing"
             )
 
         return {
@@ -62,47 +62,47 @@ class RecommandationAgent:
         nb_chambres = plan_data.get("nb_chambres", 3)
 
         scenarios = {
-            "OPTIMAL": f"""Budget OPTIMAL (+/- 5-20%). Écart positif: {ecart:,.0f} TND.
-Oriente vers: optimisation étanchéité, matériaux premium locaux, finitions qualité.
-Mentionne: économies possibles chez fournisseurs tunisiens (SOMOCER, SOTACIB, El Fouladh).
-Conseille sur: isolation thermique renforcée pour économies énergie long terme.""",
+            "OPTIMAL": f"""Budget OPTIMAL (+/- 5-20%). Positive gap: {ecart:,.0f} TND.
+Focus on: waterproofing optimisation, local premium materials, quality finishes.
+Mention: possible savings with Tunisian suppliers (SOMOCER, SOTACIB, El Fouladh).
+Advise on: enhanced thermal insulation for long-term energy savings.""",
 
-            "INSUFFISANT": f"""Budget INSUFFISANT. Déficit: {abs(ecart):,.0f} TND.
-Options concrètes:
-1. Réduire surface à ~{round(surface * budget/cout * 0.92)} m² et faire le reste en jardin ou extension future
-2. Réaliser en 2 phases: gros oeuvre + étanchéité d'abord, finitions ensuite
-3. Choisir carrelage SOMOCER entrée de gamme (25 TND/m²) au lieu premium
-4. Prioriser étanchéité (non négociable) et réduire sur décoration
-Nomme des alternatives précises avec prix tunisiens 2026.""",
+            "INSUFFICIENT": f"""Budget INSUFFICIENT. Deficit: {abs(ecart):,.0f} TND.
+Concrete options:
+1. Reduce surface to ~{round(surface * budget/cout * 0.92)} m² and leave the rest as garden or future extension
+2. Build in 2 phases: structural work + waterproofing first, finishes later
+3. Choose entry-level SOMOCER tiles (25 TND/m²) instead of premium
+4. Prioritise waterproofing (non-negotiable) and cut back on decoration
+Name precise alternatives with 2026 Tunisian prices.""",
 
-            "EXCÉDENT": f"""Budget EXCÉDENT. Surplus: {ecart:,.0f} TND.
-Recommandations investissement:
-1. Étanchéité renforcée: membrane SBS 4mm + MAPELASTIC toutes zones humides
-2. Marbre Maktar pour hall et escaliers (fournisseur: Marbrerie de Maktar)
-3. Climatisation inverter A++ dans toutes les pièces
-4. Pierre de taille calcaire Nabeul pour façade (standing premium)
-5. Domotique: volets motorisés + éclairage LED basse consommation
-6. Plan décoratif: revêtement Zellige de Nabeul, peinture Astral collection premium"""
+            "SURPLUS": f"""Budget SURPLUS. Surplus: {ecart:,.0f} TND.
+Investment recommendations:
+1. Enhanced waterproofing: 4mm SBS membrane + MAPELASTIC on all wet areas
+2. Maktar marble for hall and staircases (supplier: Marbrerie de Maktar)
+3. A++ inverter air conditioning in all rooms
+4. Nabeul limestone cladding for facade (premium standing)
+5. Smart home: motorised shutters + low-consumption LED lighting
+6. Decorative plan: Nabeul Zellige tiling, Astral premium paint collection"""
         }
 
-        prompt = f"""Tu es un conseiller en construction tunisienne expert, 2026.
+        prompt = f"""You are an expert Tunisian construction consultant, 2026.
 
-CONTEXTE:
-- Statut budget: {statut}
-- Budget: {budget:,.0f} TND | Coût matériaux: {cout:,.0f} TND
-- Écart: {ecart:+,.0f} TND ({eval_result['pourcentage']}%)
-- Région: {region} (Climat: {climat})
-- Surface: {surface} m² | Chambres: {nb_chambres}
+CONTEXT:
+- Budget status: {statut}
+- Budget: {budget:,.0f} TND | Materials cost: {cout:,.0f} TND
+- Gap: {ecart:+,.0f} TND ({eval_result['pourcentage']}%)
+- Region: {region} (Climate: {climat})
+- Surface: {surface} m² | Bedrooms: {nb_chambres}
 
-SCÉNARIO À DÉVELOPPER:
+SCENARIO TO DEVELOP:
 {scenarios[statut]}
 
-Rédige une recommandation professionnelle en 3 paragraphes structurés avec:
-- Diagnostic clair et chiffré
-- Actions concrètes prioritaires (nommées avec fournisseurs tunisiens réels)
-- Conseil durabilité/étanchéité selon climat {climat} de {region}
+Write a professional recommendation in 3 structured paragraphs covering:
+- Clear, quantified diagnosis
+- Concrete priority actions (named with real Tunisian suppliers)
+- Durability/waterproofing advice for the {climat} climate of {region}
 
-Ton: professionnel, direct, orienté résultats. Max 350 mots. En français."""
+Tone: professional, direct, results-oriented. Max 350 words."""
 
         text = call_tokenfactory(
             messages=[{"role": "user", "content": prompt}],
@@ -112,15 +112,14 @@ Ton: professionnel, direct, orienté résultats. Max 350 mots. En français."""
         return text
 
     def conseil_decoration(self, excedent: float, region: str) -> str:
-        """Conseil déco si budget excédentaire"""
-        prompt = f"""Budget construction villa Tunisie avec excédent de {excedent:,.0f} TND.
-Région: {region}.
-Donne un plan décoratif concret en 5 points avec:
-- Matériaux décoratifs tunisiens (Zellige Nabeul, marbre Maktar, ferronnerie Sfax...)
-- Estimation coût par poste
-- Où acheter en Tunisie (noms de marchés/fournisseurs)
-- Priorité selon rapport qualité/prix
-Max 250 mots, style liste structurée."""
+        prompt = f"""Tunisian villa construction budget with a surplus of {excedent:,.0f} TND.
+Region: {region}.
+Provide a concrete decorative plan in 5 points covering:
+- Tunisian decorative materials (Nabeul Zellige, Maktar marble, Sfax ironwork...)
+- Cost estimate per item
+- Where to buy in Tunisia (market/supplier names)
+- Priority by value for money
+Max 250 words, structured list style."""
 
         text = call_tokenfactory(
             messages=[{"role": "user", "content": prompt}],

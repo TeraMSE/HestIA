@@ -31,4 +31,5 @@ urlpatterns = [
     path("api/v1/materiaux/", include("materiaux.urls")),
     path("api/v1/appliances/", include("appliances.urls")),
     path("api/v1/", include("personality.urls")),
+    path("api/v1/rag/", include("rag_assistant.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

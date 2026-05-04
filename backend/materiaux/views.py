@@ -26,9 +26,9 @@ REGION_CLIMAT = {
 }
 
 COUT_CONSTRUCTION_REF = {
-    "bas":     {"min_m2": 900,  "max_m2": 1200, "label": "Économique",   "description": "Construction standard, finitions simples, matériaux locaux"},
-    "moyenne": {"min_m2": 1300, "max_m2": 1800, "label": "Intermédiaire","description": "Construction de qualité, finitions soignées, marques reconnues"},
-    "haute":   {"min_m2": 1900, "max_m2": 3000, "label": "Premium",      "description": "Construction haut de gamme, finitions luxe, matériaux importés"},
+    "bas":     {"min_m2": 900,  "max_m2": 1200, "label": "Economy",   "description": "Standard construction, simple finishes, local materials"},
+    "moyenne": {"min_m2": 1300, "max_m2": 1800, "label": "Mid-range", "description": "Quality construction, refined finishes, recognized brands"},
+    "haute":   {"min_m2": 1900, "max_m2": 3000, "label": "Premium",   "description": "High-end construction, luxury finishes, imported materials"},
 }
 
 
@@ -193,7 +193,7 @@ class AnalyserPlanView(APIView):
                 )
             else:
                 return Response(
-                    {"detail": "Fournir un plan 2D ou une surface manuelle"},
+                    {"detail": "Please provide a 2D floor plan or a manual surface area"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
