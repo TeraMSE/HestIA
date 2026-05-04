@@ -58,6 +58,8 @@ export function VisualReplay() {
   const [reportData, setReportData] = useState<ScenarioReport | null>(null);
   const [lifeSimReport, setLifeSimReport] = useState<any | null>(null);
   const [, forceUpdate] = useState(0);
+  const [isCheckingExistingJob, setIsCheckingExistingJob] = useState(false);
+  const [showUploadForm, setShowUploadForm] = useState(false);
 
   /* UI state */
   const [tab, setTab] = useState<"env" | "agents">("env");
@@ -172,6 +174,78 @@ export function VisualReplay() {
     };
   }, []);
 
+  /* ── Auto-load existing 3D world when property selection changes ── */
+  useEffect(() => {
+    const pinId = selectedPin?.id;
+
+    setRoomReady(false);
+    setShowUploadForm(false);
+    const isRealPin = !!pinId && /^\d+$/.test(String(pinId));
+    if (!pinId) {
+      setIsCheckingExistingJob(false);
+      setPipeStatus("Waiting for panorama...");
+      return;
+    }
+
+    if (!roomEnvRef.current) return;
+
+    let cancelled = false;
+    setIsCheckingExistingJob(true);
+
+    (async () => {
+      try {
+        if (!isRealPin) {
+          setPipeStatus("Upload a panorama to generate the 3D world.");
+          setShowUploadForm(true);
+          setIsCheckingExistingJob(false);
+          return;
+        }
+        const resp = await fetch(`/api/jobs/property/${pinId}/`);
+        if (cancelled) return;
+
+        if (!resp.ok) {
+          setPipeStatus("Upload a panorama to generate the 3D world.");
+          return;
+        }
+
+        const { job_id } = await resp.json();
+        if (!job_id || cancelled) return;
+
+        setPipeStatus("Loading saved 3D world…");
+        await roomEnvRef.current!.loadFromJob(job_id);
+        if (cancelled) return;
+
+        const fMgr = new FurnitureManager(sceneRef.current!, roomEnvRef.current!);
+        furnitureMgrRef.current = fMgr;
+        agentMgrRef.current!.setFurnitureManager(fMgr);
+        if (engineRef.current) engineRef.current.fm = fMgr;
+        await fMgr.placeAll();
+        if (cancelled) return;
+
+        setPipeStatus("3D world ready.");
+        setRoomReady(true);
+
+        const mesh = roomEnvRef.current!._mesh;
+        if (mesh && controlsRef.current && cameraRef.current) {
+          const box = new THREE.Box3().setFromObject(mesh);
+          const c = box.getCenter(new THREE.Vector3());
+          const s = box.getSize(new THREE.Vector3());
+          const d = Math.max(s.x, s.z) * 0.9;
+          controlsRef.current.target.set(c.x, 0, c.z);
+          cameraRef.current.position.set(c.x, d * 0.6, c.z + d);
+          controlsRef.current.update();
+        }
+        toast.success("Saved 3D world loaded.");
+      } catch {
+        if (!cancelled) setPipeStatus("Upload a panorama to generate the 3D world.");
+      } finally {
+        if (!cancelled) setIsCheckingExistingJob(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [selectedPin?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ── Auto-Spawn User Persona on Room Ready ─────────────────────── */
   useEffect(() => {
     if (roomReady && agentMgrRef.current && agents.length === 0) {
@@ -198,7 +272,7 @@ export function VisualReplay() {
       const res = await lifeSimApi.startSim({
         lat: selectedPin.lat,
         lon: selectedPin.lng,
-        property_id: String(selectedPin.id),
+        property_id: /^\d+$/.test(String(selectedPin.id)) ? String(selectedPin.id) : undefined,
         num_ticks: 24,
       });
       simStore.startRun(res.run_id, res.simulation_month, res.month_name);
@@ -270,7 +344,8 @@ export function VisualReplay() {
     setIsGenerating(true);
     setPipeStatus("Uploading...");
     const pipe = new PipelineClient();
-    const opts = { align_panorama: String(alignPano), ignore_ceiling: String(hideCeiling) };
+    const opts: Record<string, string> = { align_panorama: String(alignPano), ignore_ceiling: String(hideCeiling) };
+    if (selectedPin?.id && /^\d+$/.test(String(selectedPin.id))) opts.property_id = String(selectedPin.id);
 
     try {
       await pipe.run(
@@ -290,6 +365,7 @@ export function VisualReplay() {
 
           setPipeStatus("Room generated successfully.");
           setRoomReady(true);
+          setShowUploadForm(false);
           setIsGenerating(false);
           toast.success("3D world generated!");
 
@@ -309,7 +385,7 @@ export function VisualReplay() {
       setPipeStatus(`Error: ${err.message}`);
       toast.error(`Generation failed: ${err.message}`);
     }
-  }, [alignPano, hideCeiling]);
+  }, [alignPano, hideCeiling, selectedPin]);
 
   /* ── Handlers ──────────────────────────────────────────────────── */
   const handleTimeChange = useCallback((v: number[]) => {
@@ -423,28 +499,61 @@ export function VisualReplay() {
 
             <TabsContent value="env" className="flex-1 overflow-y-auto pr-1 mt-0 space-y-4">
               <Card className="rounded-3xl p-4 space-y-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Upload className="h-4 w-4 text-[hsl(var(--holo-cyan))]" />
-                    <Label className="font-medium">Source Panorama</Label>
+                {isCheckingExistingJob ? (
+                  <div className="flex items-center gap-3 py-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin text-[hsl(var(--holo-cyan))]" />
+                    Checking for saved 3D world…
                   </div>
-                  <Input type="file" ref={fileRef} accept="image/*" className="rounded-2xl text-xs" />
-                </div>
+                ) : roomReady && !showUploadForm ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm text-emerald-400">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span className="font-medium">3D world loaded</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      This property has a saved 3D model. Switch to the Simulation tab to explore it.
+                    </p>
+                    <Button
+                      variant="outline"
+                      className="w-full rounded-2xl text-xs"
+                      onClick={() => setShowUploadForm(true)}
+                    >
+                      <Upload className="h-3 w-3 mr-2" /> Upload New Panorama
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Upload className="h-4 w-4 text-[hsl(var(--holo-cyan))]" />
+                        <Label className="font-medium">Source Panorama</Label>
+                      </div>
+                      <Input type="file" ref={fileRef} accept="image/*" className="rounded-2xl text-xs" />
+                    </div>
 
-                <div className="space-y-3 pt-1">
-                  <div className="flex items-center justify-between rounded-2xl bg-muted p-3">
-                    <Label className="text-sm cursor-pointer" htmlFor="align-pano">Viewport Align</Label>
-                    <Switch id="align-pano" checked={alignPano} onCheckedChange={setAlignPano} />
-                  </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-muted p-3">
-                    <Label className="text-sm cursor-pointer" htmlFor="hide-ceil">Hide Ceiling</Label>
-                    <Switch id="hide-ceil" checked={hideCeiling} onCheckedChange={setHideCeiling} />
-                  </div>
-                </div>
+                    <div className="space-y-3 pt-1">
+                      <div className="flex items-center justify-between rounded-2xl bg-muted p-3">
+                        <Label className="text-sm cursor-pointer" htmlFor="align-pano">Viewport Align</Label>
+                        <Switch id="align-pano" checked={alignPano} onCheckedChange={setAlignPano} />
+                      </div>
+                      <div className="flex items-center justify-between rounded-2xl bg-muted p-3">
+                        <Label className="text-sm cursor-pointer" htmlFor="hide-ceil">Hide Ceiling</Label>
+                        <Switch id="hide-ceil" checked={hideCeiling} onCheckedChange={setHideCeiling} />
+                      </div>
+                    </div>
 
-                <Button onClick={handleGenerate} disabled={isGenerating} className="w-full rounded-2xl shadow-sims">
-                  {isGenerating ? "Generating..." : "Generate & Spawn Agents"}
-                </Button>
+                    <div className="flex gap-2">
+                      <Button onClick={handleGenerate} disabled={isGenerating} className="flex-1 rounded-2xl shadow-sims">
+                        {isGenerating ? "Generating..." : "Generate & Spawn Agents"}
+                      </Button>
+                      {showUploadForm && (
+                        <Button variant="outline" className="rounded-2xl px-3" onClick={() => setShowUploadForm(false)}>
+                          Cancel
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                )}
               </Card>
 
               <Card className="rounded-3xl p-4 space-y-4">

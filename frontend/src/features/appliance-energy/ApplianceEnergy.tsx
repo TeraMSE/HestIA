@@ -5,19 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Camera, Zap, Loader2, Clock, CheckCircle2, MapPin } from "lucide-react";
-import { applianceApi, type JobScanResult, type PanoramaRecord } from "@/services/applianceApi";
+import {
+  applianceApi,
+  type JobScanResult,
+  type PanoramaRecord,
+} from "@/services/applianceApi";
 import { toast } from "sonner";
 import { useApp } from "@/shared/store/useApp";
 
 const GRADE_COLORS: Record<string, string> = {
   "A+++": "bg-emerald-500", "A++": "bg-emerald-400", "A+": "bg-green-400",
-  "A": "bg-green-300", "B": "bg-lime-400", "C": "bg-yellow-400",
-  "D": "bg-orange-400", "E": "bg-orange-500", "F": "bg-red-500",
+  "A":    "bg-green-300",   "B":   "bg-lime-400",    "C":  "bg-yellow-400",
+  "D":    "bg-orange-400",  "E":   "bg-orange-500",  "F":  "bg-red-500",
 };
 
 const FACE_ORDER = ["front", "back", "left", "right", "top", "bottom"] as const;
-
-// ── Household scan result ───────────────────────────────────────────────────
 
 function JobScanCard({ result }: { result: JobScanResult }) {
   const gradeColor = GRADE_COLORS[result.global_grade] ?? "bg-gray-500";
@@ -77,13 +79,8 @@ function JobScanCard({ result }: { result: JobScanResult }) {
   );
 }
 
-// ── Single panorama row ─────────────────────────────────────────────────────
-
 function PanoramaRow({
-  panorama,
-  scanning,
-  result,
-  onScan,
+  panorama, scanning, result, onScan,
 }: {
   panorama: PanoramaRecord;
   scanning: boolean;
@@ -94,13 +91,12 @@ function PanoramaRow({
   const date = new Date(panorama.created_at).toLocaleDateString(undefined, {
     day: "numeric", month: "short", year: "numeric",
   });
-  const isReady = panorama.job_state === "completed" && panorama.has_cubemap_faces;
+  const isReady   = panorama.job_state === "completed" && panorama.has_cubemap_faces;
   const isRunning = panorama.job_state === "running" || panorama.job_state === "queued";
 
   return (
     <div className="space-y-3">
       <Card className="rounded-2xl p-4 space-y-3">
-        {/* Header */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <Camera className="h-4 w-4 text-muted-foreground" />
@@ -116,12 +112,7 @@ function PanoramaRow({
               </Badge>
             )}
           </div>
-          <Button
-            size="sm"
-            className="rounded-xl h-8 shrink-0"
-            disabled={!isReady || scanning}
-            onClick={onScan}
-          >
+          <Button size="sm" className="rounded-xl h-8 shrink-0" disabled={!isReady || scanning} onClick={onScan}>
             {scanning ? (
               <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Scanning…</>
             ) : isRunning ? (
@@ -136,7 +127,6 @@ function PanoramaRow({
           </Button>
         </div>
 
-        {/* 6 cubemap face thumbnails */}
         <div className="grid grid-cols-6 gap-1">
           {FACE_ORDER.map((face) =>
             faceUrls[face] ? (
@@ -167,21 +157,19 @@ function PanoramaRow({
   );
 }
 
-// ── Main component ──────────────────────────────────────────────────────────
-
 export function ApplianceEnergy() {
-  const { selectedPin } = useApp();
+  const { pins, selectedPinId } = useApp();
 
-  // selectedPin.id is the backend property ID for user_pin kind
-  const propertyId =
-    selectedPin?.kind === "user_pin" && selectedPin.id && !isNaN(parseInt(selectedPin.id))
+  const selectedPin = pins.find((p) => p.id === selectedPinId) ?? null;
+  const propertyId  =
+    selectedPin?.id && !isNaN(parseInt(selectedPin.id))
       ? parseInt(selectedPin.id)
       : undefined;
 
-  const [panoramas, setPanoramas] = useState<PanoramaRecord[]>([]);
+  const [panoramas, setPanoramas]           = useState<PanoramaRecord[]>([]);
   const [loadingPanoramas, setLoadingPanoramas] = useState(false);
-  const [scanningJobId, setScanningJobId] = useState<string | null>(null);
-  const [results, setResults] = useState<Record<string, JobScanResult>>({});
+  const [scanningJobId, setScanningJobId]   = useState<string | null>(null);
+  const [jobResults, setJobResults]         = useState<Record<string, JobScanResult>>({});
 
   useEffect(() => {
     if (!propertyId) return;
@@ -192,19 +180,18 @@ export function ApplianceEnergy() {
       .finally(() => setLoadingPanoramas(false));
   }, [propertyId]);
 
-  const handleScan = async (jobId: string) => {
+  const handleJobScan = async (jobId: string) => {
     setScanningJobId(jobId);
     try {
       const r = await applianceApi.scanFromJob(jobId);
-      setResults((prev) => ({ ...prev, [jobId]: r }));
+      setJobResults((prev) => ({ ...prev, [jobId]: r }));
       toast.success(`EPS ${r.global_score.toFixed(1)}/100 — Grade ${r.global_grade}`);
-      // Refresh list so has_appliance_scan updates
       if (propertyId) {
         const updated = await applianceApi.listPanoramasForProperty(propertyId);
         setPanoramas(updated);
       }
     } catch (e: any) {
-      const msg: string = e.response?.data?.detail ?? e.message ?? "Scan failed";
+      const msg: string = e?.response?.data?.detail ?? e.message ?? "Scan failed";
       toast.error(msg.includes("No appliances") ? "No appliances detected in this panorama" : msg);
     } finally {
       setScanningJobId(null);
@@ -214,37 +201,39 @@ export function ApplianceEnergy() {
   return (
     <OverlayPanel
       title="Appliance Energy"
-      subtitle="Automatic EPS scoring from your 3D panorama"
+      subtitle="Automatic EPS scoring from 3D panorama"
       size="xl"
     >
-      {/* No property selected */}
-      {!propertyId && (
+      {!selectedPinId && (
         <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
           <MapPin className="h-10 w-10 text-muted-foreground opacity-40" />
           <p className="text-sm font-medium">No property selected</p>
           <p className="text-xs text-muted-foreground max-w-xs">
-            Click a property pin on the map, then open the Materials tab in the Property Drawer
-            and press "Scan Appliances".
+            Click a property pin on the map, then open the 3D World tab.
           </p>
         </div>
       )}
 
-      {/* Property selected — show panoramas */}
+      {selectedPinId && !propertyId && (
+        <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+          <Camera className="h-10 w-10 text-muted-foreground opacity-40" />
+          <p className="text-xs text-muted-foreground max-w-xs">
+            Upload a panorama via the 3D World tab to enable appliance scanning.
+          </p>
+        </div>
+      )}
+
       {propertyId && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {loadingPanoramas ? (
-            <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Loading panoramas…
+            <div className="flex items-center justify-center py-10 text-muted-foreground gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" />Loading panoramas…
             </div>
           ) : panoramas.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-              <Camera className="h-10 w-10 text-muted-foreground opacity-30" />
-              <p className="text-sm font-medium">No panoramas yet</p>
-              <p className="text-xs text-muted-foreground max-w-xs">
-                Upload a panorama via the 3D World button in the Property Drawer. Once the
-                pipeline finishes, the 6 cubemap faces will appear here and you can scan for
-                appliances automatically.
+            <div className="flex flex-col items-center justify-center py-10 text-center gap-2">
+              <Camera className="h-8 w-8 text-muted-foreground opacity-30" />
+              <p className="text-sm text-muted-foreground">
+                No panoramas yet — upload one via "Enter 3D World" in the Property Drawer.
               </p>
             </div>
           ) : (
@@ -253,8 +242,8 @@ export function ApplianceEnergy() {
                 key={p.id}
                 panorama={p}
                 scanning={scanningJobId === p.job_id}
-                result={p.job_id ? (results[p.job_id] ?? null) : null}
-                onScan={() => p.job_id && handleScan(p.job_id)}
+                result={p.job_id ? (jobResults[p.job_id] ?? null) : null}
+                onScan={() => p.job_id && handleJobScan(p.job_id)}
               />
             ))
           )}

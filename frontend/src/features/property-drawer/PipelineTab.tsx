@@ -318,7 +318,7 @@ export function PipelineTab({ pin, apartment }: PipelineTabProps) {
         title="Life Simulation"
         icon={<Play className="h-4 w-4" />}
         done={false}
-        locked={!allReady}
+        locked={false}
         expanded={expanded === "sim"}
         onToggle={() => toggle("sim")}
         highlight
@@ -326,20 +326,20 @@ export function PipelineTab({ pin, apartment }: PipelineTabProps) {
         <Button
           size="sm"
           className="w-full rounded-xl text-xs"
-          disabled={!allReady}
+          disabled={false}
           onClick={() => openOverlay("visual-replay")}
-          style={allReady ? {
+          style={{
             background: "linear-gradient(135deg, hsl(var(--primary)), hsl(185 95% 55%))",
             boxShadow: "0 0 20px hsl(var(--primary)/0.4)",
-          } : undefined}
+          }}
         >
-          {allReady ? (
-            <><Play className="h-3 w-3 mr-1" /> Launch Life Simulation</>
-          ) : (
-            <><Lock className="h-3 w-3 mr-1" /> Complete steps 1–4 first</>
-          )}
+          <><Play className="h-3 w-3 mr-1" /> Launch Life Simulation</>
         </Button>
       </StepCard>
+
+
+
+
 
       {/* ── Report Modals ────────────────────────────────────────────── */}
       <Dialog open={activeReport === "noise"} onOpenChange={(o) => !o && setActiveReport(null)}>

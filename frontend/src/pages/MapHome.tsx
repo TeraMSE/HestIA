@@ -15,6 +15,7 @@ import { ApplianceEnergy } from "@/features/appliance-energy/ApplianceEnergy";
 import { RoommatePanel } from "@/features/roommate/RoommatePanel";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { CatChatWidget } from "@/features/rag-assistant/CatChatWidget";
 
 export default function MapHome() {
   const { activeOverlay, placementMode, setPlacementMode, user: appUser } = useApp();
@@ -71,6 +72,7 @@ export default function MapHome() {
           )}
         </div>
       )}
+      <CatChatWidget />
     </div>
   );
 }

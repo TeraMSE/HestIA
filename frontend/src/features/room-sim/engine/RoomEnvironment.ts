@@ -27,12 +27,17 @@ export class RoomEnvironment {
     const meshUrl = `/api/jobs/${jobId}/artifact/mesh/`;
     const polyUrl = `/api/jobs/${jobId}/floor_polygon/`;
 
-    let rawPolygon: FloorPoint[] = [];
-    try {
-      const polyResp = await fetch(polyUrl);
-      const polyData = await polyResp.json();
-      rawPolygon = polyData.floor_polygon || [];
-    } catch (_) {}
+    const fetchPolygon = (): Promise<FloorPoint[]> => {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 8000);
+      return fetch(polyUrl, { signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((d) => { clearTimeout(tid); return d.floor_polygon || []; })
+        .catch(() => []);
+    };
+
+    // Start polygon fetch in parallel with mesh load so neither blocks the other.
+    const polyPromise = fetchPolygon();
 
     this._clearMesh();
 
@@ -119,17 +124,25 @@ export class RoomEnvironment {
           this._innerMesh.position.copy(this._mesh.position);
 
           const finalScale = this._mesh.scale.x;
+          const cx = center.x, cz = center.z;
+
           // np_coor2xy returns floor-plan pixel coords: x ∈ [0,1024], z ∈ [0,512]
           // normalized by 512 in floor_polygon.py. Convert back to PLY world-space:
           //   PLY x = pt.x * 512 - 511.5   (un-normalize, remove center offset)
           //   PLY y = pt.z * 512 - 255.5   (un-normalize, remove center offset)
           // Three.js rotation.x = -π/2 maps PLY y → -Three.js z, so negate z.
-          this._floorPolygon = rawPolygon.map((pt) => ({
-            x: (pt.x * 512 - 511.5) * finalScale - center.x,
-            z: (255.5 - pt.z * 512) * finalScale - center.z,
-          }));
+          const applyPoly = (raw: FloorPoint[]) => {
+            if (raw.length) {
+              this._floorPolygon = raw.map((pt) => ({
+                x: (pt.x * 512 - 511.5) * finalScale - cx,
+                z: (255.5 - pt.z * 512) * finalScale - cz,
+              }));
+            }
+          };
 
+          // Resolve immediately so the caller can proceed; apply polygon when ready.
           resolve(this._mesh);
+          polyPromise.then(applyPoly);
         },
         undefined,
         reject

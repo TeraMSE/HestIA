@@ -39,9 +39,9 @@ export interface MainOeuvre {
 export interface ClimPiece {
   piece: string;
   surface_m2: number;
-  btu_necessite: number;
+  btu_calcule: number;
   nb_unites: number;
-  puissance_recommandee_kw: number;
+  puissance_btu: string;
 }
 
 export interface EvalBudget {

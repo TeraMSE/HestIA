@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback } from "react";
 import { useApp } from "@/shared/store/useApp";
 import { useAuthStore } from "@/shared/store/useAuthStore";
 import { X, Box, Calculator, FileText, Home as HomeIcon, Layers, Settings2, Heart, Users } from "lucide-react";
+import { AppliancePanoramaSection } from "@/features/appliance-energy/AppliancePanoramaSection";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -128,7 +129,7 @@ export function PropertyDrawer() {
             </TabsContent>
 
             {/* ── 3D ────────────────────────────────────────────────────────── */}
-            <TabsContent value="3d" className="mt-0">
+            <TabsContent value="3d" className="mt-0 space-y-4">
               <div className="rounded-3xl bg-gradient-sky border border-border p-6 text-center">
                 <Box className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
                 <h3 className="font-display text-xl mb-1">3D Room World</h3>
@@ -137,15 +138,14 @@ export function PropertyDrawer() {
                     ? "Explore this property in an immersive 3D environment with AI agents."
                     : "Upload a panorama to generate a 3D world for this property."}
                 </p>
-                <div className="flex flex-col gap-2">
-                  <Button
-                    className="rounded-2xl shadow-sims"
-                    onClick={() => openOverlay("visual-replay")}
-                  >
-                    {pin.scan === "scanned" ? "🌍 Enter 3D World" : "📷 Upload & Generate 3D"}
-                  </Button>
-                </div>
+                <Button
+                  className="rounded-2xl shadow-sims w-full"
+                  onClick={() => openOverlay("visual-replay")}
+                >
+                  {pin.scan === "scanned" ? "🌍 Enter 3D World" : "📷 Upload & Generate 3D"}
+                </Button>
               </div>
+              <AppliancePanoramaSection pin={pin} />
             </TabsContent>
 
             {/* ── Pipeline (merged from Intel + Simulate) ───────────────────── */}

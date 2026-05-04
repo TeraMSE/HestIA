@@ -35,7 +35,11 @@ interface AuthStore {
 function loadStoredUser(): User | null {
   try {
     const stored = localStorage.getItem("user");
-    return stored ? JSON.parse(stored) : null;
+    if (!stored) return null;
+    const user = JSON.parse(stored);
+    // Reject stale objects that predate the role field
+    if (!user?.role) return null;
+    return user;
   } catch {
     return null;
   }

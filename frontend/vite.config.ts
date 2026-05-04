@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: "http://127.0.0.1:8000",
           changeOrigin: true,
+          proxyTimeout: 15000,
+          timeout: 15000,
         },
         "/static": {
           target: "http://127.0.0.1:8000",
