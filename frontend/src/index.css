@@ -272,6 +272,22 @@
 }
 
 /* ===========================================================
+   WORLD OVERLAY — layer panel slide animations
+   =========================================================== */
+
+@keyframes panel-slide-from-left {
+  from { transform: translateX(-110%); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+@keyframes panel-slide-from-right {
+  from { transform: translateX(110%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.animate-panel-left  { animation: panel-slide-from-left  0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+.animate-panel-right { animation: panel-slide-from-right 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* ===========================================================
    ROOM SIMULATION OVERLAY
    =========================================================== */
 

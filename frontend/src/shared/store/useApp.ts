@@ -16,6 +16,8 @@ export type OverlayId =
   | "appliance-energy"
   | "roommate-compat";
 
+export type WorldLayerId = null | "energy" | "simulation";
+
 interface AppState {
   // Auth
   user: User | null;
@@ -66,6 +68,11 @@ interface AppState {
   openOverlay: (id: OverlayId) => void;
   closeOverlay: () => void;
 
+  // 3D World layer panels
+  activeWorldLayer: WorldLayerId;
+  setWorldLayer: (l: WorldLayerId) => void;
+  toggleWorldLayer: (l: WorldLayerId) => void;
+
   // Landlord placement mode
   placementMode: boolean;
   setPlacementMode: (v: boolean) => void;
@@ -115,6 +122,10 @@ export const useApp = create<AppState>((set) => ({
   activeOverlay: null,
   openOverlay: (id) => set({ activeOverlay: id }),
   closeOverlay: () => set({ activeOverlay: null }),
+
+  activeWorldLayer: null,
+  setWorldLayer: (activeWorldLayer) => set({ activeWorldLayer }),
+  toggleWorldLayer: (l) => set((s) => ({ activeWorldLayer: s.activeWorldLayer === l ? null : l })),
 
   placementMode: false,
   setPlacementMode: (placementMode) => set({ placementMode }),

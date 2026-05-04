@@ -2,11 +2,12 @@ import { useApp } from "@/shared/store/useApp";
 import { useAuthStore } from "@/shared/store/useAuthStore";
 import { MapShell } from "@/features/map/MapShell";
 import { MapOverlays } from "@/features/map/MapOverlays";
-import { PropertyDrawer } from "@/features/property-drawer/PropertyDrawer";
+import { LandlordPropertyDrawer } from "@/features/property-drawer/LandlordPropertyDrawer";
+import { PropertyPinCard } from "@/features/map/PropertyPinCard";
 import { ModuleDashboard } from "@/features/dashboard/ModuleDashboard";
 import { PersonaBuilder } from "@/features/persona/PersonaBuilder";
 import { ApartmentConfigurator } from "@/features/apartment/ApartmentConfigurator";
-import { VisualReplay } from "@/features/replay/VisualReplay";
+import { WorldOverlay } from "@/features/world-overlay/WorldOverlay";
 import { Reports } from "@/features/reports/Reports";
 import { MaterialAgent } from "@/features/material-agent/MaterialAgent";
 import { AdminAssistant } from "@/features/admin-assistant/AdminAssistant";
@@ -18,12 +19,10 @@ import { Plus } from "lucide-react";
 import { CatChatWidget } from "@/features/rag-assistant/CatChatWidget";
 
 export default function MapHome() {
-  const { activeOverlay, placementMode, setPlacementMode, user: appUser } = useApp();
+  const { activeOverlay, placementMode, setPlacementMode, user: appUser, selectedPinId } = useApp();
   const authUser = useAuthStore((s) => s.user);
-  // Check both stores — appUser from old system, authUser from JWT store
   const isLandlord = authUser?.role === "landlord" || appUser?.role === "landlord";
-  
-  // Debug: log current role to verify auth state
+
   if (process.env.NODE_ENV === 'development') {
     console.log("MapHome role check — authUser:", authUser?.role, "appUser:", appUser?.role, "isLandlord:", isLandlord);
   }
@@ -32,12 +31,16 @@ export default function MapHome() {
     <div className="fixed inset-0 overflow-hidden">
       <MapShell />
       <MapOverlays />
-      <PropertyDrawer />
+
+      {/* Pin selection UI: landlords get the full drawer, renters get the compact card */}
+      {selectedPinId && (
+        isLandlord ? <LandlordPropertyDrawer /> : <PropertyPinCard />
+      )}
 
       {activeOverlay === "module-dashboard" && <ModuleDashboard />}
       {activeOverlay === "persona-builder" && <PersonaBuilder />}
       {activeOverlay === "apartment-configurator" && <ApartmentConfigurator />}
-      {activeOverlay === "visual-replay" && <VisualReplay />}
+      {activeOverlay === "visual-replay" && <WorldOverlay />}
       {activeOverlay === "reports" && <Reports />}
       {activeOverlay === "material-agent" && <MaterialAgent />}
       {activeOverlay === "admin-assistant" && <AdminAssistant />}
@@ -46,7 +49,7 @@ export default function MapHome() {
       {activeOverlay === "apt-configurator" && <ApartmentConfigurator />}
       {activeOverlay === "roommate-compat" && <RoommatePanel />}
 
-      {/* Landlord: Add Property button — only visible for landlord accounts */}
+      {/* Landlord: Add Property button */}
       {isLandlord && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[600] flex flex-col items-center gap-2 pointer-events-auto">
           {placementMode ? (
@@ -76,4 +79,3 @@ export default function MapHome() {
     </div>
   );
 }
-
