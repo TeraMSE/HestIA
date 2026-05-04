@@ -171,31 +171,27 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
     const agentMgr = agentMgrRef.current;
     const roomEnv = roomEnvRef.current;
 
-    // Build the default apartment layout
     const furnitureMgr = new FurnitureManager(sceneRef.current!, roomEnv);
     furnitureMgr.buildFromLayout(replay.apartment);
     furnitureMgrRef.current = furnitureMgr;
 
-    // Spawn Agent A
     const agentA = agentMgr.spawnAgent("male");
     if (agentA) {
       agentA.label = personaAName;
-      agentA.color = "#a78bfa"; // violet
+      agentA.color = "#a78bfa";
     }
 
-    // Spawn Agent B
     const agentB = agentMgr.spawnAgent("female");
     if (agentB) {
       agentB.label = personaBName;
-      agentB.color = "#22d3ee"; // cyan
+      agentB.color = "#22d3ee";
     }
 
-    // Initialize Driver
     const driver = new LifeSimDriver(agentMgr, furnitureMgr, todRef.current, replay, {
       userALabel: personaAName,
       userBLabel: personaBName,
     });
-    driver.setSpeed(1.5); // Slightly faster for cohab
+    driver.setSpeed(1.5);
 
     driver.onTickChange = (tick, lbl) => {
       setCurrentTick(tick);
@@ -213,12 +209,11 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
     };
 
     driverRef.current = driver;
-
     setRoomReady(true);
     toast.success("Room ready — press Play to start the replay");
   }, [replay, personaAName, personaBName, roomReady]);
 
-  /* ── Playback loop ───────────────────────────────────────────────── */
+  /* ── Playback controls ───────────────────────────────────────────── */
   const startPlayback = useCallback(() => {
     if (!driverRef.current) return;
     if (driverRef.current.currentFrameIndex >= driverRef.current.totalFrames - 1) {
@@ -251,41 +246,47 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
 
   /* ── Render ──────────────────────────────────────────────────────── */
   return (
-    <div className="flex flex-col h-full bg-[#0a0a14] rounded-2xl overflow-hidden border border-gray-800">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 shrink-0">
+    <div className="flex flex-col h-full bg-[#06060f] rounded-2xl overflow-hidden border border-[hsl(var(--holo-cyan)/0.1)]">
+      {/* ── Header ───────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-[hsl(var(--holo-cyan)/0.1)] bg-[#08081a] shrink-0">
         <button
           onClick={onBack}
-          className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition-colors"
+          className="p-1.5 rounded-lg hover:bg-white/8 text-gray-600 hover:text-white transition-colors"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <div className="p-1.5 bg-violet-500/10 rounded-lg">
+
+        <div className="p-1.5 bg-violet-500/10 rounded-lg border border-violet-500/20">
           <Users className="h-4 w-4 text-violet-400" />
         </div>
+
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white">3D Cohabitation Replay</p>
-          <p className="text-xs text-gray-500 truncate">
+          <p className="text-xs text-gray-600 truncate">
             <span className="text-violet-300">{personaAName}</span>
-            {" × "}
+            <span className="text-gray-700"> × </span>
             <span className="text-cyan-300">{personaBName}</span>
           </p>
         </div>
-        <Badge variant="outline" className="shrink-0 text-xs">
+
+        <Badge
+          variant="outline"
+          className="shrink-0 text-xs font-mono border-[hsl(var(--holo-cyan)/0.2)] text-[hsl(var(--holo-cyan)/0.7)] bg-[hsl(var(--holo-cyan)/0.04)]"
+        >
           {timeLabel}
         </Badge>
       </div>
 
-      {/* 3D Viewport */}
+      {/* ── 3D Viewport ──────────────────────────────────────────────── */}
       <div className="relative flex-1 min-h-0">
         <div ref={containerRef} className="absolute inset-0" />
         <div ref={labelsRef} className="absolute inset-0 pointer-events-none overflow-hidden" />
 
         {/* Loading overlay */}
         {(loading || !roomReady) && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#060610]/80 gap-3">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#060610]/85 gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-gray-500">
               {loading ? "Loading replay data…" : "Building 3D environment…"}
             </p>
           </div>
@@ -293,42 +294,48 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
 
         {/* Error overlay */}
         {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#060610]/90 gap-3 p-6 z-50">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#060610]/92 gap-3 p-6 z-50">
             <AlertTriangle className="h-8 w-8 text-red-400" />
-            <p className="text-sm text-red-300 text-center">{error}</p>
-            <Button size="sm" variant="outline" onClick={onBack}>Go Back</Button>
+            <p className="text-sm text-red-400 text-center">{error}</p>
+            <Button size="sm" variant="outline" onClick={onBack} className="rounded-xl border-gray-700">
+              Go Back
+            </Button>
           </div>
         )}
 
         {/* Conflict flash */}
         {currentConflict && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 max-w-sm w-full mx-4 z-20 animate-in fade-in slide-in-from-top-2 duration-300">
-            <div className="bg-amber-950/90 border border-amber-500/40 rounded-xl px-4 py-2 flex items-start gap-2 shadow-2xl">
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 max-w-sm w-[calc(100%-2rem)] z-20 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="bg-amber-950/90 border border-amber-600/30 rounded-xl px-4 py-2.5 flex items-start gap-2.5 shadow-2xl backdrop-blur-sm">
               <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
               <p className="text-xs text-amber-200 leading-relaxed">{currentConflict}</p>
             </div>
           </div>
         )}
 
-        {/* Legend */}
+        {/* Persona legend */}
         {roomReady && !loading && !error && (
-          <div className="absolute bottom-3 left-3 flex flex-col gap-1 z-10">
-            <div className="flex items-center gap-2 bg-black/60 rounded-lg px-2 py-1 backdrop-blur-sm border border-white/5">
-              <div className="w-3 h-3 rounded-full bg-violet-400" />
-              <span className="text-xs text-gray-300">{personaAName}</span>
-            </div>
-            <div className="flex items-center gap-2 bg-black/60 rounded-lg px-2 py-1 backdrop-blur-sm border border-white/5">
-              <div className="w-3 h-3 rounded-full bg-cyan-400" />
-              <span className="text-xs text-gray-300">{personaBName}</span>
-            </div>
+          <div className="absolute bottom-3 left-3 flex flex-col gap-1.5 z-10">
+            {[
+              { color: "#a78bfa", name: personaAName, colorClass: "bg-violet-400" },
+              { color: "#22d3ee", name: personaBName, colorClass: "bg-cyan-400" },
+            ].map(({ color, name, colorClass }) => (
+              <div
+                key={name}
+                className="flex items-center gap-2 bg-black/60 rounded-lg px-2.5 py-1.5 backdrop-blur-sm border border-white/5"
+              >
+                <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                <span className="text-xs text-gray-300">{name}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Controls */}
-      <div className="px-4 py-3 border-t border-gray-800 space-y-2 shrink-0">
+      {/* ── Playback Controls ─────────────────────────────────────────── */}
+      <div className="px-4 py-3 border-t border-[hsl(var(--holo-cyan)/0.1)] bg-[#08081a] space-y-2.5 shrink-0">
         {/* Progress bar */}
-        <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+        <div className="h-1 bg-gray-800/80 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-300"
             style={{
@@ -338,20 +345,21 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
           />
         </div>
 
+        {/* Controls row */}
         <div className="flex items-center gap-2">
           <Button
             size="sm"
             variant="ghost"
-            className="h-8 w-8 p-0 text-gray-400 hover:text-white"
+            className="h-8 w-8 p-0 text-gray-600 hover:text-white hover:bg-white/8 rounded-lg"
             onClick={resetPlayback}
             disabled={!roomReady || loading}
           >
-            <SkipBack className="h-4 w-4" />
+            <SkipBack className="h-3.5 w-3.5" />
           </Button>
 
           <Button
             size="sm"
-            className="flex-1 h-8 rounded-lg bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 text-violet-300 text-xs gap-1.5"
+            className="flex-1 h-8 rounded-xl bg-violet-600/15 hover:bg-violet-600/25 border border-violet-500/25 text-violet-300 hover:text-violet-200 text-xs gap-1.5 transition-colors"
             onClick={playing ? pausePlayback : startPlayback}
             disabled={!roomReady || loading}
           >
@@ -362,24 +370,22 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
             )}
           </Button>
 
-          <span className="text-xs text-gray-500 shrink-0 min-w-[30px] text-right">
+          <span className="text-[11px] text-gray-700 font-mono shrink-0 min-w-[40px] text-right">
             {currentTick}/{Math.max(0, totalFrames - 1)}
           </span>
         </div>
 
         {/* Compatibility score strip */}
         {replay?.simulation_summary && (
-          <div className="flex items-center gap-2 pt-1">
-            <Heart className="h-3.5 w-3.5 text-pink-400 shrink-0" />
-            <span className="text-xs text-gray-500">Compatibility:</span>
-            <span className="text-xs font-semibold text-white">
+          <div className="flex items-center gap-2 pt-0.5">
+            <Heart className="h-3.5 w-3.5 text-pink-500 shrink-0" />
+            <span className="text-[11px] text-gray-600">Compatibility</span>
+            <span className="text-[11px] font-semibold text-white">
               {Math.round((replay.simulation_summary.compatibility_score ?? 0) * 100)}%
             </span>
-            <span className="text-xs text-gray-600">
-              {replay.simulation_summary.label}
-            </span>
+            <span className="text-[11px] text-gray-700">{replay.simulation_summary.label}</span>
             {replay.simulation_summary.conflicts_count > 0 && (
-              <Badge className="ml-auto text-[10px] bg-amber-950/50 text-amber-400 border-amber-500/30">
+              <Badge className="ml-auto text-[10px] bg-amber-950/40 text-amber-500 border-amber-600/25">
                 {replay.simulation_summary.conflicts_count} conflicts
               </Badge>
             )}
@@ -389,4 +395,3 @@ export function CohabVisualReplay({ runId, personaAName, personaBName, onBack }:
     </div>
   );
 }
-

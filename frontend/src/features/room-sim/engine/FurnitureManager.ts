@@ -723,5 +723,116 @@ export class FurnitureManager {
     this.furniture = [];
     this._loaded = false;
   }
+
+  /**
+   * Return a serializable snapshot of placed furniture (type + position + rotation)
+   */
+  getPlacements() {
+    return this.furniture.map(f => ({ type: f.type, x: f.x, z: f.z, rotY: (f.mesh.rotation?.y ?? 0) }));
+  }
+
+  /**
+   * Clear all furniture from the scene but keep manager alive.
+   */
+  clearFurniture() {
+    for (const f of this.furniture) {
+      this.scene.remove(f.mesh);
+      if (f.light) this.scene.remove(f.light);
+    }
+    this.furniture = [];
+    this._loaded = false;
+  }
+
+  /**
+   * Restore furniture from a serialized placement list.
+   * Attempts to preload GLTFs and then create pieces at exact positions.
+   */
+  async restorePlacements(placements: { type: FurnitureType; x: number; z: number; rotY?: number }[]) {
+    if (!placements || placements.length === 0) return;
+    // Preload GLBs used by defs
+    const glbPaths = new Set(FURNITURE_DEFS.map((d) => d.path).filter(Boolean) as string[]);
+    const glbCache = new Map<string, THREE.Group>();
+    if (glbPaths.size > 0) {
+      try {
+        const loaded = await Promise.all(
+          Array.from(glbPaths).map(async (path) => {
+            const gltf = await this._loader.loadAsync(path);
+            return { path, scene: gltf.scene };
+          })
+        );
+        for (const item of loaded) glbCache.set(item.path, item.scene);
+      } catch (e) {
+        console.warn('[FurnitureManager] restore: failed to preload GLBs', e);
+      }
+    }
+
+    for (const p of placements) {
+      const def = FURNITURE_DEFS.find(d => d.type === p.type);
+      if (!def) continue;
+      let mesh: THREE.Object3D;
+      let light: THREE.PointLight | undefined;
+      let glowMesh: THREE.Mesh | undefined;
+
+      if (def.invisible) {
+        mesh = new THREE.Group();
+      } else if (def.path) {
+        const cached = glbCache.get(def.path);
+        if (!cached) continue;
+        mesh = cached.clone();
+        mesh.scale.setScalar((def.scale ?? 1.0));
+      } else {
+        const built = this._buildProcedural(def.type, 1.0);
+        mesh = built.mesh;
+        light = built.light;
+        glowMesh = built.glowMesh;
+      }
+
+      mesh.position.set(p.x, 0, p.z);
+      if (p.rotY) mesh.rotation.y = p.rotY;
+      mesh.traverse((o: any) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      if (light) { light.position.set(p.x, 1.5, p.z); this.scene.add(light); }
+      this.scene.add(mesh);
+      this.furniture.push({ type: p.type, mesh, x: p.x, z: p.z, interactionRadius: def.interactionRadius || 0.8, light, glowMesh });
+    }
+    this._loaded = true;
+  }
+
+  /**
+   * Toggle textures on/off by removing material.map; restore not supported for external GLTFs.
+   */
+  toggleTextures(show: boolean) {
+    for (const f of this.furniture) {
+      f.mesh.traverse((o: any) => {
+        if (o.isMesh && o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats) {
+            try {
+              if ((m as any).__original_map === undefined) {
+                (m as any).__original_map = (m as any).map ?? null;
+              }
+              if (!show) {
+                (m as any).map = null;
+              } else {
+                (m as any).map = (m as any).__original_map ?? null;
+              }
+              m.needsUpdate = true;
+            } catch (e) { /* ignore */ }
+          }
+        }
+      });
+    }
+  }
+
+  /** Show or hide all furniture entities without removing them. */
+  setVisible(visible: boolean) {
+    for (const f of this.furniture) {
+      f.mesh.visible = visible;
+      if (f.light) f.light.visible = visible;
+    }
+  }
+
+  hasFurniture() {
+    return this.furniture.length > 0;
+  }
 }
 

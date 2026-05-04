@@ -39,6 +39,10 @@ export class ScenarioEngine {
     this.fm = fm;
   }
 
+  public setFurnitureManager(fm: FurnitureManager | null) {
+    this.fm = fm;
+  }
+
   public stop() {
     this.isRunning = false;
     this.am.autoTickEnabled = true;

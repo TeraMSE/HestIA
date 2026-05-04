@@ -134,6 +134,7 @@ def property_job_status(request: HttpRequest, property_id: int) -> JsonResponse:
             "panorama_url": f"/api/jobs/{job.id}/artifact/panorama/",
             "floor_polygon_url": f"/api/jobs/{job.id}/floor_polygon/",
             "detections_url": f"/api/jobs/{job.id}/artifact/detections/",
+            "analysis_url": f"/api/jobs/{job.id}/artifact/analysis/",
         },
     })
 
@@ -175,6 +176,7 @@ def job_status(request: HttpRequest, job_id: str) -> JsonResponse:
                 "panorama_url": f"/api/jobs/{job.id}/artifact/panorama/",
                 "floor_polygon_url": f"/api/jobs/{job.id}/floor_polygon/",
                 "detections_url": f"/api/jobs/{job.id}/artifact/detections/",
+                "analysis_url": f"/api/jobs/{job.id}/artifact/analysis/",
             }
 
         if job.state == "failed":
@@ -321,6 +323,29 @@ def artifact_detections(request: HttpRequest, job_id: str) -> FileResponse:
 
         return FileResponse(
             detections_path.open("rb"),
+            content_type="application/json",
+            as_attachment=False,
+        )
+
+    except ReconstructionJob.DoesNotExist:
+        return JsonResponse({"error": "Job not found"}, status=404)
+
+
+@require_GET
+def artifact_analysis(request: HttpRequest, job_id: str) -> FileResponse:
+    """GET /api/jobs/<uuid>/artifact/analysis/ — Download panorama_analysis.json."""
+    try:
+        job = get_object_or_404(ReconstructionJob, pk=job_id)
+
+        if job.state != "completed":
+            return JsonResponse({"error": "Job not completed"}, status=409)
+
+        analysis_path = job.job_dir() / "panorama_analysis.json"
+        if not analysis_path.is_file():
+            return JsonResponse({"error": "Panorama analysis not found"}, status=404)
+
+        return FileResponse(
+            analysis_path.open("rb"),
             content_type="application/json",
             as_attachment=False,
         )

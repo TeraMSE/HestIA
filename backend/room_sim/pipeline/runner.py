@@ -116,6 +116,18 @@ class PipelineRunner:
             log(f"Running HorizonNet inference on: {source_for_inference.name}")
             layout_json_path = self._infer(job_dir, source_for_inference, job.force_cuboid, log)
 
+            # ── Step 2.5: Panorama analysis ──────────────────────────────
+            # Runs after HorizonNet (we have the layout) but before meshing.
+            # Writes panorama_analysis.json alongside layout.json.
+            # Non-fatal: a failure here does not abort the rest of the pipeline.
+            set_step("panorama_analysis")
+            log("Running panorama analysis...")
+            try:
+                analysis_path = job_dir / "panorama_analysis.json"
+                self._analyze_panorama(source_for_inference, layout_json_path, analysis_path, log)
+            except Exception as e:
+                log(f"WARNING: Panorama analysis failed: {e}")
+
             # ── Step 3: Mesh building ────────────────────────────────────
             set_step("meshing")
             log("Building PLY mesh from layout...")
@@ -266,6 +278,35 @@ class PipelineRunner:
         )
         log(f"PLY: {info['vertices']} vertices, {info['faces']} faces, stride={info['stride']}")
         return info
+
+
+    def _analyze_panorama(
+        self,
+        image_path: Path,
+        layout_path: Path,
+        output_path: Path,
+        log,
+    ) -> None:
+        """Run panorama analysis and write panorama_analysis.json."""
+        from .panorama_analyzer import analyze_panorama
+
+        img_pil = Image.open(image_path).convert("RGB")
+        image_np = np.array(img_pil)
+
+        with layout_path.open("r", encoding="utf-8") as f:
+            layout = json.load(f)
+
+        result = analyze_panorama(image_np, layout)
+
+        with output_path.open("w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
+
+        ins = result["insights"]
+        log(
+            f"Panorama analysis: light={ins['light_score']:.2f} ({ins['light_character']}), "
+            f"{ins['window_count']} windows, {ins['door_count']} doors, "
+            f"palette={ins['palette_temperature']}"
+        )
 
 
 def submit_pipeline_job(job_id: str, checkpoint_path: Path) -> threading.Thread:

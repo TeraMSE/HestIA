@@ -1,6 +1,6 @@
 /**
  * RoomEnvironment — Loads PLY mesh and floor polygon, provides containment checks.
- * Ported from sim.html. Renders a CLEAN white material (no textures/vertex colors).
+ * PLY is generated with panorama-derived per-vertex RGB, so render with vertex colors.
  */
 import * as THREE from "three";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
@@ -17,6 +17,8 @@ export class RoomEnvironment {
   _floorPolygon: FloorPoint[] | null = null;
   private _loader: PLYLoader;
   private _worldScale = 10.0;
+  private _texturesEnabled = true;
+  private _floorY = -2.0;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -42,9 +44,10 @@ export class RoomEnvironment {
         (geometry) => {
           geometry.computeVertexNormals();
 
-          // ── CLEAN white material (no vertex colors / textures) ──
+          // ── Panorama color material via per-vertex RGB in the generated PLY ──
           const mat = new THREE.MeshStandardMaterial({
-            color: 0xf0f0f0,
+            color: 0xffffff,
+            vertexColors: true,
             side: THREE.DoubleSide,
             roughness: 0.6,
             metalness: 0.05,
@@ -82,7 +85,8 @@ export class RoomEnvironment {
             }
           }
           const innerMat = new THREE.MeshStandardMaterial({
-            color: 0xe0e0e0,
+            color: 0xffffff,
+            vertexColors: true,
             side: THREE.DoubleSide,
             roughness: 0.65,
             metalness: 0.05,
@@ -92,6 +96,9 @@ export class RoomEnvironment {
           this._innerMesh.scale.setScalar(this._worldScale);
           this._innerMesh.receiveShadow = true;
           this.scene.add(this._innerMesh);
+
+          // Reapply the current texture preference after rebuilding the room.
+          this.applyTextureEnabled(this._texturesEnabled);
 
           // ── Fit and center ──
           this._mesh.updateMatrixWorld(true);
@@ -112,7 +119,10 @@ export class RoomEnvironment {
             box.getCenter(center);
           }
 
-          const GRID_Y = 0;
+          // Match the scene floor/grid baseline used by the replay viewport.
+          // This keeps the reconstructed room flush with the visible ground plane.
+          const GRID_Y = -2.0;
+          this._floorY = GRID_Y;
           this._mesh.position.x -= center.x;
           this._mesh.position.z -= center.z;
           this._mesh.position.y = GRID_Y - box.min.y;
@@ -135,6 +145,24 @@ export class RoomEnvironment {
         reject
       );
     });
+  }
+
+  setTextureEnabled(enabled: boolean) {
+    this._texturesEnabled = enabled;
+    this.applyTextureEnabled(enabled);
+  }
+
+  private applyTextureEnabled(enabled: boolean) {
+    const meshes = [this._mesh, this._innerMesh].filter(Boolean) as THREE.Mesh[];
+    for (const mesh of meshes) {
+      const material = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
+      const materials = Array.isArray(material) ? material : [material];
+      for (const mat of materials) {
+        mat.vertexColors = enabled;
+        mat.color.set(enabled ? 0xffffff : 0xf0f0f0);
+        mat.needsUpdate = true;
+      }
+    }
   }
 
   containsPoint(x: number, z: number): boolean {
@@ -165,6 +193,10 @@ export class RoomEnvironment {
       minZ: Math.min(...zs),
       maxZ: Math.max(...zs),
     };
+  }
+
+  getFloorY(): number {
+    return this._floorY;
   }
 
   private _clearMesh() {
