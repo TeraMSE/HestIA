@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Upload, Sparkles, Loader2, Bot, FileText, Activity, CheckCircle,
   AlertCircle, XCircle, TrendingUp, TrendingDown, Target, X, CheckCircle2,
@@ -470,8 +471,8 @@ export function WorldOverlay() {
     setSelectedAgent(a);
   }, []);
 
-  return (
-    <div className="fixed inset-0 z-[1000] bg-[#060610] overflow-hidden">
+  const overlay = (
+    <div className="fixed inset-0 z-[9999] bg-[#060610] overflow-hidden">
 
       {/* ── Three.js canvas ── */}
       <div ref={containerRef} className="absolute inset-0" />
@@ -842,4 +843,6 @@ export function WorldOverlay() {
       </Dialog>
     </div>
   );
+
+  return createPortal(overlay, document.body);
 }
