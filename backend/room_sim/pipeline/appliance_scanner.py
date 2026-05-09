@@ -4,17 +4,19 @@ appliance_scanner.py
 Bridge between the 3-D reconstruction pipeline and the Appliance Energy
 Scanner (TacheEnergyMaha merged into the `appliances` Django app).
 
-After YOLO-World object detection completes the 6 cubemap face images are
-saved to job_dir/cubemap_faces/. This module:
+After the main object-detection step completes the 6 cubemap face images are
+saved to job_dir/cubemap_faces/.  This module:
 
-  1. Filters detections for appliance-class objects.
-  2. Crops each detection from its cubemap face image (undistorted
-     perspective view — better for the CNN than the ERP image).
-  3. Saves each crop to job_dir/appliance_crops/.
-  4. Runs every crop through ApplianceVisionAgent.analyze_single().
-  5. Writes the combined results to job_dir/appliance_scans.json.
-  6. Persists Appliance + ApplianceScan DB rows when the job is
-     linked to a Property.
+  1. Asks the LLaVA VLM whether the panorama is a kitchen (kitchen gate).
+  2. If not a kitchen: returns None immediately — YOLO-World is not run.
+  3. If kitchen: runs YOLO-World (yolov8x-worldv2.pt) on the saved face images
+     filtering for appliance classes (refrigerator / air conditioner /
+     washing machine / water heater).
+  4. Crops each detection from its cubemap face image.
+  5. Runs every crop through ApplianceVisionAgent.analyze_single().
+  6. Writes combined results to job_dir/appliance_scans.json.
+  7. Persists Appliance + ApplianceScan DB rows when the job is linked to a
+     Property.
 
 The visual-state LLM call (TokenFactory Vision) is skipped in this
 automated context — panorama crops lack the close-up detail needed for
@@ -30,18 +32,88 @@ import cv2
 
 logger = logging.getLogger(__name__)
 
-# YOLO class names (English) -> CNN class names (French)
+# YOLO-World class names → CNN class names (French)
+# Only these 4 appliance classes are searched for by YOLO-World.
 YOLO_TO_CNN = {
     "refrigerator":    "refrigerateur",
     "air conditioner": "climatiseur",
     "washing machine": "machine_laver",
     "water heater":    "chauffe_eau",
-    "ceiling light":   "ampoule",
-    "lamp":            "ampoule",
 }
 
 MIN_CROP_PX = 48    # smaller crops give unreliable CNN predictions
 CROP_PADDING = 24   # pixels added around each bbox before saving
+
+# Per-job kitchen-classification cache to avoid re-prompting the VLM
+# on repeated requests within the same process lifecycle.
+_KITCHEN_CACHE: dict[str, bool] = {}
+
+
+def is_kitchen_panorama(image_path: Path, job_id: str) -> bool:
+    """
+    Ask the LLaVA VLM whether the given image is a kitchen.
+    Result is cached per job_id so the VLM is only called once per job.
+    Falls back to False on any error (so appliance scan is simply skipped).
+    """
+    if job_id in _KITCHEN_CACHE:
+        return _KITCHEN_CACHE[job_id]
+
+    try:
+        from social_sim.engine.llm_client import call_tokenfactory_vision
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+        response = call_tokenfactory_vision(
+            image_bytes=image_bytes,
+            prompt="Is this image of a kitchen? Answer only 'yes' or 'no'.",
+            temperature=0.0,
+            max_tokens=10,
+        )
+        result = response.strip().lower().startswith("yes")
+    except Exception as exc:
+        logger.warning(
+            "[appliance_scanner] Kitchen VLM check failed (%s) — defaulting to False.", exc
+        )
+        result = False
+
+    _KITCHEN_CACHE[job_id] = result
+    return result
+
+
+def _run_yoloworld_on_faces(
+    faces_dir: Path,
+    log: Callable[[str], None],
+) -> list:
+    """
+    Run YOLO-World (yolov8x-worldv2.pt) on the 4 wall cubemap faces and
+    return detections that match YOLO_TO_CNN appliance classes.
+    """
+    from django.conf import settings
+    from room_sim.pipeline.cv.detector import OpenVocabDetector
+
+    ckpt = Path(settings.BASE_DIR) / "checkpoints" / "yolov8x-worldv2.pt"
+    if not ckpt.is_file():
+        log("WARNING: yolov8x-worldv2.pt not found — appliance scan skipped.")
+        return []
+
+    appliance_vocab = list(YOLO_TO_CNN.keys())
+    log(f"[appliance] Running YOLO-World for appliances: {appliance_vocab}")
+    detector = OpenVocabDetector(model_name=str(ckpt), classes=appliance_vocab)
+
+    wall_faces = ["front", "back", "left", "right"]
+    hits = []
+    for face_name in wall_faces:
+        face_path = faces_dir / f"{face_name}.jpg"
+        if not face_path.is_file():
+            continue
+        img = cv2.imread(str(face_path))
+        if img is None:
+            continue
+        dets = detector.detect(img, face_name, conf_threshold=0.25)
+        for d in dets:
+            if d["class_name"].lower() in YOLO_TO_CNN:
+                hits.append(d)
+    log(f"[appliance] YOLO-World found {len(hits)} appliance detection(s).")
+    return hits
 
 
 def _crop_from_face(face_img, bbox, padding=CROP_PADDING):
@@ -68,18 +140,44 @@ def scan_appliances(
 
     Args:
         job_dir:    Base directory for this reconstruction job.
-        detections: Parsed detections.json content (already in memory).
+        detections: Parsed detections.json content (already in memory, from best.pt).
+                    Used for context only — appliance classes are re-detected via
+                    YOLO-World when the room is identified as a kitchen.
         faces_dir:  Directory where the 6 cubemap face JPEGs were saved.
         log:        Logging callback that writes to events.log.
 
     Returns:
         appliance_scans dict written to disk, or None when nothing found.
     """
-    # 1. Filter for appliance-class objects
-    appliance_hits = [
-        d for d in detections.get("detections", [])
-        if d["class_name"].lower() in YOLO_TO_CNN
-    ]
+    job_id = job_dir.name
+
+    # ── Kitchen gate ─────────────────────────────────────────────────────────
+    # best.pt does not detect refrigerator / air conditioner / washing machine /
+    # water heater.  We only bother running YOLO-World when the VLM confirms
+    # the panorama shows a kitchen.
+    #
+    # Pick the "front" face (or first available) as the VLM input to keep the
+    # request lightweight.
+    kitchen_probe: Path | None = None
+    for _face in ("front", "back", "left", "right", "top", "bottom"):
+        _p = faces_dir / f"{_face}.jpg"
+        if _p.is_file():
+            kitchen_probe = _p
+            break
+
+    if kitchen_probe is None:
+        log("[appliance] No cubemap faces found — appliance scan skipped.")
+        return None
+
+    log("[appliance] Checking room type via VLM (kitchen gate)...")
+    if not is_kitchen_panorama(kitchen_probe, job_id):
+        log("[appliance] Room is not a kitchen — appliance scan skipped.")
+        return None
+
+    log("[appliance] Room classified as kitchen — running YOLO-World appliance scan.")
+
+    # ── Detect appliances with YOLO-World ─────────────────────────────────────
+    appliance_hits = _run_yoloworld_on_faces(faces_dir, log)
 
     if not appliance_hits:
         log("No appliance-class objects detected — skipping appliance scan.")

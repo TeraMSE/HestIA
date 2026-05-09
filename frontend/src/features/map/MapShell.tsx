@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { Box, Upload, Heart } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, useMapEvents, CircleMarker } from "react-leaflet";
 import L from "leaflet";
 import { useApp } from "@/shared/store/useApp";
@@ -256,7 +257,7 @@ function MapEffects() {
 }
 
 export function MapShell() {
-  const { pins, setPins, setSelectedPinId, selectedPinId, activeFilters, setSelectedPin, user, placementMode, setPlacementMode } = useApp();
+  const { pins, setPins, setSelectedPinId, selectedPinId, activeFilters, setSelectedPin, user, placementMode, setPlacementMode, setWorldOpen } = useApp();
   const authUser = useAuthStore((s) => s.user);
   const [pendingCoords, setPendingCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [pois, setPois] = useState<POINode[]>([]);
@@ -376,29 +377,45 @@ export function MapShell() {
           icon={pinIcon(p, p.id === selectedPinId)}
           eventHandlers={{ click: () => setSelectedPinId(p.id) }}
         >
-          <Popup className="holo-popup">
-            <div className="font-display text-base holo-text-glow">{p.title}</div>
-            <div className="text-xs text-muted-foreground">{p.subtitle}</div>
-            {p.priceTND && (
-              <div className="mt-1 text-sm font-semibold">
-                {p.priceTND.toLocaleString()} TND {p.forRent ? "/ month" : ""}
-              </div>
-            )}
-            {(p as any).has_3d && (
-              <div className="mt-1 text-xs text-emerald-400 font-medium">✦ 3D world available</div>
-            )}
-            {p.kind === "property" && !isNaN(Number(p.id)) && (
+          <Popup className="holo-popup" minWidth={168}>
+            <div className="flex flex-col gap-1.5 p-0.5">
+              {/* 3D world entry */}
               <button
-                className="mt-2 w-full text-xs rounded-lg border px-2 py-1 transition-colors"
+                onClick={() => { setSelectedPinId(p.id); setWorldOpen(true); }}
+                className="w-full flex items-center justify-center gap-2 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all"
                 style={{
-                  borderColor: interestedPins.has(p.id) ? "hsl(145 70% 50%)" : "hsl(var(--border))",
-                  color: interestedPins.has(p.id) ? "hsl(145 70% 50%)" : "inherit",
+                  background: (p.scan === "scanned" || (p as any).has_3d)
+                    ? "linear-gradient(135deg, hsl(185 95% 40%), hsl(185 95% 62%))"
+                    : "linear-gradient(135deg, hsl(220 30% 22%), hsl(220 30% 30%))",
+                  color: "white",
+                  boxShadow: (p.scan === "scanned" || (p as any).has_3d)
+                    ? "0 0 14px hsl(185 95% 65% / 0.45)"
+                    : "none",
                 }}
-                onClick={() => { setSelectedPin(p); handleToggleInterest(p); }}
               >
-                {interestedPins.has(p.id) ? "✓ Interested" : "🤝 I'm interested"}
+                {(p.scan === "scanned" || (p as any).has_3d) ? (
+                  <><Box className="h-3.5 w-3.5" /> Enter 3D World</>
+                ) : (
+                  <><Upload className="h-3.5 w-3.5" /> Upload &amp; Generate 3D</>
+                )}
               </button>
-            )}
+
+              {/* Interest toggle */}
+              {p.kind === "property" && !isNaN(Number(p.id)) && (
+                <button
+                  onClick={() => { setSelectedPin(p); handleToggleInterest(p); }}
+                  className="w-full flex items-center justify-center gap-2 text-xs px-3 py-2 rounded-xl transition-all border"
+                  style={{
+                    borderColor: interestedPins.has(p.id) ? "hsl(320 60% 65% / 0.7)" : "hsl(220 20% 70% / 0.6)",
+                    background: interestedPins.has(p.id) ? "hsl(320 90% 75% / 0.12)" : "hsl(0 0% 0% / 0.03)",
+                    color: interestedPins.has(p.id) ? "hsl(320 55% 48%)" : "hsl(220 25% 40%)",
+                  }}
+                >
+                  <Heart className={`h-3.5 w-3.5 ${interestedPins.has(p.id) ? "fill-current" : ""}`} />
+                  {interestedPins.has(p.id) ? "Interested" : "Mark Interest"}
+                </button>
+              )}
+            </div>
           </Popup>
         </Marker>
       ))}

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * FurnitureManager — Places furniture inside the room using GLB assets + procedural pieces.
  * Supports wall-aligned placement, proportional scaling, and per-frame interaction effects.
  */
@@ -12,7 +12,8 @@ import type { TimeOfDayController } from "./TimeOfDay";
 export type FurnitureType =
   | "bed" | "chair" | "table" | "tv" | "stove" | "desk"
   | "door" | "bathroom" | "fridge" | "sink" | "sofa"
-  | "toilet" | "shower" | "wardrobe" | "lamp";
+  | "toilet" | "shower" | "wardrobe" | "lamp"
+  | "cabinet" | "tv_unit";
 
 export interface FurniturePiece {
   type: FurnitureType;
@@ -29,6 +30,7 @@ export interface FurniturePiece {
 /** Which pieces go against walls vs free interior */
 const WALL_PIECES = new Set<FurnitureType>([
   "bed", "sofa", "tv", "wardrobe", "stove", "fridge", "sink", "desk", "door",
+  "cabinet", "tv_unit",
 ]);
 
 /** Kitchen cluster: placed on the same wall segment */
@@ -62,9 +64,11 @@ const FURNITURE_DEFS: {
   { type: "shower",   interactionRadius: 0.9, wallDepth: 0.5  },
   { type: "wardrobe", interactionRadius: 0.8, wallDepth: 0.32 },
   { type: "lamp",     interactionRadius: 0.5, wallDepth: 0.2  },
-  { type: "chair",    path: "/static/glb/chair.glb",  scale: 0.012, interactionRadius: 0.8 },
-  { type: "table",    path: "/static/glb/table.glb",  scale: 0.012, interactionRadius: 1.0 },
-  { type: "tv",       path: "/static/glb/tv.glb",     scale: 0.8,   interactionRadius: 1.2, wallDepth: 0.25 },
+  { type: "chair",    path: "/static/glb/chair.glb",    scale: 0.012, interactionRadius: 0.8 },
+  { type: "table",    path: "/static/glb/table.glb",    scale: 0.012, interactionRadius: 1.0 },
+  { type: "tv",       path: "/static/glb/tv.glb",       scale: 0.8,   interactionRadius: 1.2, wallDepth: 0.25 },
+  { type: "cabinet",  path: "/static/glb/cabinet.glb",  scale: 0.012, interactionRadius: 0.8, wallDepth: 0.32 },
+  { type: "tv_unit",  path: "/static/glb/tv_unit.glb",  scale: 0.012, interactionRadius: 1.2, wallDepth: 0.30 },
 ];
 
 export class FurnitureManager {
@@ -262,16 +266,32 @@ export class FurnitureManager {
         const erpWidth  = data?.erp_resolution?.[0] || 4096;
         const erpHeight = data?.erp_resolution?.[1] || 2048;
 
+        // ── YOLO class name → FurnitureType (best.pt 31-class model) ──────────
+        // Duplicate / near-synonym classes from best.pt are collapsed here.
+        // All other best.pt classes (book, bottle, curtains, wall textures, etc.)
+        // are intentionally absent — they are silently ignored by this code.
         const YOLO_MAP: Record<string, FurnitureType> = {
-          "bed": "bed", "wardrobe": "wardrobe", "closet": "wardrobe",
-          "chair": "chair", "desk": "desk", "table": "table",
-          "television": "tv", "monitor": "tv",
-          "door": "door", "sofa": "sofa",
-          "refrigerator": "fridge",
+          // Chairs
+          "Chair":        "chair",
+          "chair":        "chair",
+          // Sofas
+          "Sofa":         "sofa",
+          "couch":        "sofa",
+          // Tables
+          "Table":        "table",
+          "table":        "table",
+          "dining table": "table",
+          // Other major furniture
+          "bed":          "bed",
+          "wardrobe":     "wardrobe",
+          // Cabinets (storage)
+          "cabinet":      "cabinet",
+          "cupboard":     "cabinet",
+          "sideboard":    "cabinet",
+          // TV / media
+          "tv unit":      "tv_unit",
+          "tvmonitor":    "tv",
         };
-        // "lamp" and "ceiling light" intentionally excluded — they're ceiling fixtures
-        // whose ERP bbox sits in the top/bottom zone and belong at the room center,
-        // not ray-cast to a wall.
 
         const seenTypes = new Set<string>();
 

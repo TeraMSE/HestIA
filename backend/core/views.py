@@ -6,6 +6,7 @@ import hashlib
 from django.core.cache import cache
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
@@ -50,11 +51,13 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         if serializer.instance.owner != self.request.user:
-            return Response(
-                {"detail": "You do not have permission to update this property."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            raise PermissionDenied("You do not have permission to update this property.")
         serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.owner != self.request.user:
+            raise PermissionDenied("You do not have permission to delete this property.")
+        instance.delete()
 
     @action(detail=False, methods=["get"])
     def my_properties(self, request):

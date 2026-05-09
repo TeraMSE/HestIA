@@ -10,6 +10,7 @@ interface Props {
   currentJobId: string | null;
   selectedPin: PropertyPin | null;
   isActive: boolean;
+  onScanResult?: (result: JobScanResult | null) => void;
 }
 
 const GRADE_COLOR: Record<string, string> = {
@@ -36,7 +37,7 @@ function GradeBadge({ grade }: { grade: string }) {
   );
 }
 
-export function EnergyLayerPanel({ currentJobId, selectedPin, isActive }: Props) {
+export function EnergyLayerPanel({ currentJobId, selectedPin, isActive, onScanResult }: Props) {
   const [scanResult, setScanResult] = useState<JobScanResult | null>(null);
   const [scanning, setScanning] = useState(false);
   const [autoScanAttempted, setAutoScanAttempted] = useState(false);
@@ -45,7 +46,8 @@ export function EnergyLayerPanel({ currentJobId, selectedPin, isActive }: Props)
   useEffect(() => {
     setScanResult(null);
     setAutoScanAttempted(false);
-  }, [currentJobId]);
+    onScanResult?.(null);
+  }, [currentJobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scan when panel becomes active with a valid job
   useEffect(() => {
@@ -62,6 +64,7 @@ export function EnergyLayerPanel({ currentJobId, selectedPin, isActive }: Props)
     try {
       const result = await applianceApi.scanFromJob(currentJobId);
       setScanResult(result);
+      onScanResult?.(result);
       toast.success("Appliance scan complete.");
     } catch (e: any) {
       toast.error("Scan failed: " + (e?.response?.data?.detail || e.message));

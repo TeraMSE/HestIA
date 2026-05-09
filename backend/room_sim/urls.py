@@ -16,6 +16,9 @@ urlpatterns = [
     # Shared 3D world lookup — any user can check if a property has a completed job
     path("api/jobs/property/<int:property_id>/", views.property_job_status, name="property_job_status"),
 
+    # Delete 3D world (owner only)
+    path("api/jobs/<uuid:job_id>/delete/", views.job_delete, name="job_delete"),
+
     # Artifacts
     path("api/jobs/<uuid:job_id>/artifact/mesh/", views.artifact_mesh, name="artifact_mesh"),
     path("api/jobs/<uuid:job_id>/artifact/layout/", views.artifact_layout, name="artifact_layout"),
@@ -26,4 +29,7 @@ urlpatterns = [
 
     # Derived data
     path("api/jobs/<uuid:job_id>/floor_polygon/", views.floor_polygon, name="floor_polygon"),
+
+    # Window detection from existing job
+    path("api/windows/scan-from-job/<uuid:job_id>/", views.window_scan_from_job, name="window_scan_from_job"),
 ]

@@ -1,11 +1,11 @@
-﻿import cv2
+import cv2
 import json
 import argparse
 import os
 from typing import Dict, Any, List
 
 from .projection import ERP2Cubemap
-from .detector import OpenVocabDetector
+from .detector import ClosedVocabDetector, OpenVocabDetector
 from .post_process import Reprojector
 
 # Read DETECTOR_BACKEND via python-decouple so .env is honoured.
@@ -18,21 +18,24 @@ except Exception:
 
 print(f"[CV] Detector backend: {_BACKEND}")
 
-# Upgraded YOLOWorld default (x-size v2 — better recall on indoor vocab)
+# Custom-trained closed-vocabulary checkpoint (31 furniture classes)
+_DEFAULT_CLOSED_MODEL = "checkpoints/best.pt"
+# YOLO-World kept for the appliance-scanner kitchen path
 _DEFAULT_YOLO_MODEL = "yolov8x-worldv2.pt"
 
 
-def _build_detector(model_name: str, classes: List[str] | None,
+def _build_detector(model_name: str, classes: List[str] | None = None,
                     fallback_model: str | None = None):
-    """Try Grounding DINO first if requested; fall back to YOLOWorld with the
-    correct default checkpoint — never pass a non-existent name like 'gdino'."""
-    # Resolve which YOLO model to use for the fallback path.
-    # If model_name looks like a path/file, use it; otherwise use the default.
-    yolo_model = fallback_model or (
-        model_name if model_name.endswith(".pt") else _DEFAULT_YOLO_MODEL
-    )
-    """Try Grounding DINO first if requested; fall back to YOLOWorld silently."""
+    """Build the appropriate detector.
+
+    * Default (yoloworld / not gdino): use ClosedVocabDetector (best.pt).
+      `classes` is ignored — best.pt has fixed baked-in class names.
+    * DETECTOR_BACKEND=gdino: try Grounding DINO, fall back to YOLO-World.
+    """
     if _BACKEND == "gdino":
+        yolo_model = fallback_model or (
+            model_name if model_name.endswith(".pt") else _DEFAULT_YOLO_MODEL
+        )
         try:
             from .grounding_dino_detector import GroundingDINODetector
             print("Initializing Grounding DINO Detector…")
@@ -43,8 +46,13 @@ def _build_detector(model_name: str, classes: List[str] | None,
             print(f"[warn] groundingdino-py import failed ({e}) — falling back to YOLO-World.")
         except Exception as exc:
             print(f"[warn] Grounding DINO init failed ({exc}) — falling back to YOLO-World.")
-    print(f"Initializing YOLO-World Detector ({yolo_model})...")
-    return OpenVocabDetector(model_name=yolo_model, classes=classes)
+        print(f"Initializing YOLO-World Detector ({yolo_model}) as GDINO fallback...")
+        return OpenVocabDetector(model_name=yolo_model, classes=classes)
+
+    # Default: closed-vocabulary best.pt
+    ckpt = model_name if model_name.endswith(".pt") else _DEFAULT_CLOSED_MODEL
+    print(f"Initializing ClosedVocabDetector ({ckpt})...")
+    return ClosedVocabDetector(model_path=ckpt)
 
 
 class ZeroShotERPPipeline:
@@ -52,7 +60,7 @@ class ZeroShotERPPipeline:
     End-to-End Orchestrator for mapping ERP -> Cubemaps -> Object Detection -> Reprojection ERP -> JSON
     """
     def __init__(self, erp_width: int = 4096, erp_height: int = 2048, face_size: int = 1024,
-                 model_name: str = _DEFAULT_YOLO_MODEL, classes: List[str] = None,
+                 model_name: str = _DEFAULT_CLOSED_MODEL, classes: List[str] = None,
                  fallback_model: str | None = None):
         self.erp_width = erp_width
         self.erp_height = erp_height
@@ -145,14 +153,12 @@ if __name__ == "__main__":
     parser.add_argument("--input", "-i", type=str, required=True, help="Path to input ERP panorama image")
     parser.add_argument("--output", "-o", type=str, default="detections.json", help="Path to output JSON file")
     parser.add_argument("--conf", "-c", type=float, default=0.3, help="Confidence threshold")
-    parser.add_argument("--model", "-m", type=str, default=_DEFAULT_YOLO_MODEL, help=f"YOLO-World model to use (default: {_DEFAULT_YOLO_MODEL})")
-    parser.add_argument("--classes", type=str, nargs="+", 
-                        default=["bed", "wardrobe", "closet", "chair", "desk", "nightstand", "table", "television", "monitor", "lamp", "ceiling light", "window", "door", "rug", "mirror", "curtain", "air conditioner", "painting", "sofa", "refrigerator"], 
-                        help="Target classes for zero-shot detection")
+    parser.add_argument("--model", "-m", type=str, default=_DEFAULT_CLOSED_MODEL,
+                        help=f"Detector checkpoint to use (default: {_DEFAULT_CLOSED_MODEL})")
     parser.add_argument("--debug", action="store_true", help="Save debug images of cubemap faces with bounding boxes drawn")
     args = parser.parse_args()
 
-    pipeline = ZeroShotERPPipeline(model_name=args.model, classes=args.classes)
+    pipeline = ZeroShotERPPipeline(model_name=args.model)
     results = pipeline.run(args.input, args.conf, debug=args.debug)
     with open(args.output, "w") as f:
         json.dump(results, f, indent=4)

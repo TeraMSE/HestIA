@@ -28,6 +28,7 @@ interface Props {
   lifeSimActive: boolean;
   onStartLifeSim: () => void;
   onShowLifeSimReport: () => void;
+  onSpawnPersona: () => void;
   roomReady: boolean;
   isActive: boolean;
   feedEndRef: React.RefObject<HTMLDivElement | null>;
@@ -38,7 +39,7 @@ type CardId = "life" | "roommate" | "cohab" | "solo";
 export function SimulationLayerPanel({
   agentMgrRef, engineRef, agents, selectedAgent, onSelectAgent,
   selectedPin, lifeSimStarting, lifeSimActive, onStartLifeSim,
-  onShowLifeSimReport, roomReady, isActive, feedEndRef,
+  onShowLifeSimReport, onSpawnPersona, roomReady, isActive, feedEndRef,
 }: Props) {
   const simStore = useSimStore();
   const [expanded, setExpanded] = useState<CardId | null>("life");
@@ -68,7 +69,8 @@ export function SimulationLayerPanel({
     setLoadingCandidates(true);
     try {
       const res = await socialApi.getPropertyInterested(selectedPin.id);
-      setCandidates(res.interested_users.filter((u) => !u.is_me && u.has_persona));
+      // Show ALL interested users (excluding self), not just those with a persona
+      setCandidates(res.interested_users.filter((u) => !u.is_me));
     } catch {
       toast.error("Could not load candidates.");
     } finally {
@@ -76,14 +78,18 @@ export function SimulationLayerPanel({
     }
   }
 
-  async function startCohab(partnerId: number) {
+  async function startCohab(partner: InterestedUser) {
     if (!selectedPin) return;
+    if (!partner.has_persona) {
+      toast.error(`${partner.display_name} hasn't set up a persona profile yet. Ask them to complete their profile first.`);
+      return;
+    }
     try {
       const res = await cohabApi.startCohab({
         lat: selectedPin.lat,
         lon: selectedPin.lng,
         property_id: selectedPin.id,
-        partner_user_id: partnerId,
+        partner_user_id: partner.id,
         num_ticks: 24,
       });
       setCohabRunId(res.run_id);
@@ -108,8 +114,14 @@ export function SimulationLayerPanel({
   }
 
   function startSoloScenario() {
+    if (!roomReady) {
+      toast.info("The 3D room must be loaded first. Enter the 3D World for this property.");
+      return;
+    }
     if (!engineRef.current || agents.length === 0) {
-      toast.error("Need at least 1 agent.");
+      // Auto-spawn a persona then run the scenario
+      onSpawnPersona();
+      toast.info("Spawning your persona — the scenario will start automatically once ready.");
       return;
     }
     setSoloRunning(true);
@@ -166,21 +178,40 @@ export function SimulationLayerPanel({
                 </Button>
               </div>
             ) : (
-              <Button
-                size="sm"
-                onClick={onStartLifeSim}
-                disabled={!roomReady || agents.length === 0 || lifeSimStarting || lifeSimActive}
-                className="w-full rounded-xl text-xs font-semibold"
-                style={{ background: "linear-gradient(135deg, hsl(var(--primary)), hsl(185 95% 55%))", boxShadow: "0 0 16px hsl(var(--primary)/0.3)" }}
-              >
-                {lifeSimStarting ? (
-                  <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Starting…</>
-                ) : lifeSimActive ? (
-                  <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Simulating… {simStore.simProgress}%</>
-                ) : (
-                  <><Bot className="h-3 w-3 mr-1.5" /> Start Life Simulation</>
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (!roomReady) {
+                      toast.info("The 3D room must be loaded first. Enter the 3D World for this property.");
+                      return;
+                    }
+                    if (agents.length === 0) {
+                      onSpawnPersona();
+                      toast.info("Spawning your persona — the simulation will start once your agent is in the room.");
+                      return;
+                    }
+                    onStartLifeSim();
+                  }}
+                  disabled={lifeSimStarting || lifeSimActive}
+                  className="w-full rounded-xl text-xs font-semibold"
+                  style={{ background: "linear-gradient(135deg, hsl(var(--primary)), hsl(185 95% 55%))", boxShadow: "0 0 16px hsl(var(--primary)/0.3)" }}
+                >
+                  {lifeSimStarting ? (
+                    <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Starting…</>
+                  ) : lifeSimActive ? (
+                    <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Simulating… {simStore.simProgress}%</>
+                  ) : (
+                    <><Bot className="h-3 w-3 mr-1.5" /> Start Life Simulation</>
+                  )}
+                </Button>
+                {!roomReady && (
+                  <p className="text-[10px] text-white/40 text-center mt-1">Open the 3D World first to enable simulation</p>
                 )}
-              </Button>
+                {roomReady && agents.length === 0 && (
+                  <p className="text-[10px] text-white/40 text-center mt-1">Click to spawn your persona and start</p>
+                )}
+              </>
             )}
 
             {/* Live event feed */}
@@ -252,23 +283,34 @@ export function SimulationLayerPanel({
                   </div>
                 ) : candidates.length === 0 ? (
                   <p className="text-xs text-white/55 text-center py-3">
-                    No compatible candidates yet. Others need to favorite this property and set up a persona.
+                    No other users have favorited this property yet.
                   </p>
                 ) : (
                   <div className="space-y-2">
                     {candidates.map((c) => (
                       <button
                         key={c.id}
-                        onClick={() => startCohab(c.id)}
+                        onClick={() => startCohab(c)}
                         className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs bg-black/30 border border-white/10 hover:border-[hsl(var(--holo-cyan)/0.4)] hover:bg-[hsl(var(--holo-cyan)/0.05)] transition-all"
                       >
                         <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-[hsl(var(--holo-pink)/0.2)] border border-[hsl(var(--holo-pink)/0.3)] flex items-center justify-center text-[10px] font-bold text-[hsl(var(--holo-pink))]">
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                            c.has_persona
+                              ? "bg-[hsl(var(--holo-pink)/0.2)] border border-[hsl(var(--holo-pink)/0.3)] text-[hsl(var(--holo-pink))]"
+                              : "bg-gray-800 border border-gray-700 text-gray-500"
+                          }`}>
                             {c.display_name.charAt(0).toUpperCase()}
                           </div>
-                          <span className="font-medium text-white">{c.display_name}</span>
+                          <div className="text-left">
+                            <span className="font-medium text-white block">{c.display_name}</span>
+                            {!c.has_persona && (
+                              <span className="text-[9px] text-amber-400/80">No persona yet</span>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-[hsl(var(--holo-cyan))] text-[10px]">Simulate →</span>
+                        <span className={`text-[10px] ${c.has_persona ? "text-[hsl(var(--holo-cyan))]" : "text-gray-600"}`}>
+                          {c.has_persona ? "Simulate →" : "Not ready"}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -295,7 +337,7 @@ export function SimulationLayerPanel({
             <Button
               size="sm"
               onClick={startSoloScenario}
-              disabled={agents.length === 0 || soloRunning}
+              disabled={soloRunning}
               className="w-full rounded-xl text-xs font-semibold"
               style={{ background: "linear-gradient(135deg, hsl(50 100% 45%), hsl(35 100% 55%))", color: "#000" }}
             >
@@ -305,7 +347,28 @@ export function SimulationLayerPanel({
                 <><Play className="h-3 w-3 mr-1.5" /> {agents.length >= 2 ? "Run Cohabitation Scene" : "Run Solo Scenario"}</>
               )}
             </Button>
+            {!roomReady && (
+              <p className="text-[10px] text-white/40 text-center">Open the 3D World first</p>
+            )}
+            {roomReady && agents.length === 0 && (
+              <p className="text-[10px] text-white/40 text-center">Click to spawn your persona and run</p>
+            )}
           </SimCard>
+
+          {/* ── Spawn Persona ── */}
+          {roomReady && agents.length === 0 && (
+            <div className="rounded-2xl border border-[hsl(var(--holo-cyan)/0.3)] bg-[hsl(var(--holo-cyan)/0.05)] px-4 py-3 flex flex-col gap-2">
+              <p className="text-xs text-white/70">No persona in the 3D world yet.</p>
+              <Button
+                size="sm"
+                onClick={onSpawnPersona}
+                className="w-full rounded-xl text-xs font-semibold"
+                style={{ background: "linear-gradient(135deg, hsl(185 95% 40%), hsl(185 95% 60%))", color: "#000" }}
+              >
+                <Bot className="h-3 w-3 mr-1.5" /> Spawn My Persona
+              </Button>
+            </div>
+          )}
 
           {/* ── Active Personas (always visible) ── */}
           {agents.length > 0 && (

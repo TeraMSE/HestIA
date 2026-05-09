@@ -30,12 +30,24 @@ import { useAuthStore } from "@/shared/store/useAuthStore";
 import { useSimStore } from "@/shared/store/useSimStore";
 import { lifeSimApi } from "@/services/lifeSimApi";
 import { LayerToolbar } from "./LayerToolbar";
-import { EnergyLayerPanel } from "./EnergyLayerPanel";
 import { SimulationLayerPanel } from "./SimulationLayerPanel";
+import { MoldLayerPanel, MOCK_MOLD_FINDINGS } from "./MoldLayerPanel";
+import { StatsLayerPanel } from "./StatsLayerPanel";
+import { applianceApi } from "@/services/applianceApi";
+import type { JobScanResult } from "@/services/applianceApi";
 import { getJobId, saveJobId } from "@/lib/worldJobCache";
+import { PersonaBuilder } from "@/features/persona/PersonaBuilder";
+import { ApartmentConfigurator } from "@/features/apartment/ApartmentConfigurator";
+import { Reports } from "@/features/reports/Reports";
+import { MaterialAgent } from "@/features/material-agent/MaterialAgent";
+import { AdminAssistant } from "@/features/admin-assistant/AdminAssistant";
+import { NeighborhoodIntel } from "@/features/neighborhood/NeighborhoodIntel";
+import { ApplianceEnergy } from "@/features/appliance-energy/ApplianceEnergy";
+import { RoommatePanel } from "@/features/roommate/RoommatePanel";
+
 
 export function WorldOverlay() {
-  const { closeOverlay, activeWorldLayer, pins, selectedPinId } = useApp();
+  const { closeOverlay, activeOverlay, setWorldOpen, activeWorldLayer, pins, selectedPinId, showCeiling } = useApp();
   const { user } = useAuthStore();
   const simStore = useSimStore();
   const selectedPin = pins.find((p) => p.id === selectedPinId) ?? null;
@@ -81,7 +93,13 @@ export function WorldOverlay() {
   const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const feedEndRef = useRef<HTMLDivElement>(null);
   const windowMeshesRef = useRef<THREE.Mesh[]>([]);
+  const ceilingMeshRef = useRef<THREE.Mesh | null>(null);
+  const defaultWindowMeshesRef = useRef<THREE.Mesh[]>([]);
+  const moldObjectsRef = useRef<THREE.Object3D[]>([]);
+  const timeValRef = useRef(12);
   const [windowsDetected, setWindowsDetected] = useState(false);
+  const [applianceScanResult, setApplianceScanResult] = useState<JobScanResult | null>(null);
+  const applianceScanResultRef = useRef<JobScanResult | null>(null);
 
   /* ── Initialize Three.js scene ─────────────────────────────────── */
   useEffect(() => {
@@ -89,15 +107,15 @@ export function WorldOverlay() {
     if (!container) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x060610);
-    scene.fog = new THREE.Fog(0x060610, 25, 80);
+    scene.background = new THREE.Color(0x8bbedd); // overridden each frame by sky animation
+    scene.fog = new THREE.FogExp2(0x8bbedd, 0.018);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
     camera.position.set(5, 4, 8);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", stencil: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     container.appendChild(renderer.domElement);
@@ -109,13 +127,13 @@ export function WorldOverlay() {
     controls.target.set(0, 0, 0);
     controlsRef.current = controls;
 
-    // White infinite-looking floor — replaces the dark void
+    // White infinite-looking floor — sits at Y=0 to match the room bottom
     const gnd = new THREE.Mesh(
       new THREE.PlaneGeometry(400, 400),
-      new THREE.MeshStandardMaterial({ color: 0xf5f5f7, roughness: 0.88, metalness: 0.02 })
+      new THREE.MeshStandardMaterial({ color: 0xf0f2f5, roughness: 0.88, metalness: 0.02 })
     );
     gnd.rotation.x = -Math.PI / 2;
-    gnd.position.y = -1.6;
+    gnd.position.y = 0;
     gnd.receiveShadow = true;
     scene.add(gnd);
 
@@ -150,10 +168,19 @@ export function WorldOverlay() {
     observer.observe(container);
     onResize();
 
+    const skyColor = new THREE.Color();
     const animate = () => {
       animIdRef.current = requestAnimationFrame(animate);
       controls.update();
       agentMgr.update();
+      // Dynamic sky background based on time of day
+      const h = timeValRef.current;
+      if (h >= 6 && h < 8)        skyColor.setHex(0xe8c89a); // dawn warm
+      else if (h >= 8 && h < 18)  skyColor.setHex(0x8bbedd); // day sky blue
+      else if (h >= 18 && h < 20) skyColor.setHex(0xd4825a); // dusk orange
+      else                         skyColor.setHex(0x080818); // night
+      scene.background = skyColor;
+      if (scene.fog instanceof THREE.FogExp2) scene.fog.color.copy(skyColor);
       renderer.render(scene, camera);
     };
     animate();
@@ -172,8 +199,24 @@ export function WorldOverlay() {
       tod.dispose();
       controls.dispose();
       renderer.dispose();
-      windowMeshesRef.current.forEach((m) => { m.geometry.dispose(); (m.material as THREE.Material).dispose(); });
+      windowMeshesRef.current.forEach((m) => {
+        m.traverse(child => {
+          if (child instanceof THREE.LineSegments) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
+          }
+        });
+        m.geometry.dispose();
+        const mat = m.material as THREE.MeshBasicMaterial;
+        if (mat.map) mat.map.dispose();
+        mat.dispose();
+      });
       windowMeshesRef.current = [];
+      if (ceilingMeshRef.current) { ceilingMeshRef.current.geometry.dispose(); (ceilingMeshRef.current.material as THREE.Material).dispose(); ceilingMeshRef.current = null; }
+      defaultWindowMeshesRef.current.forEach(m => { m.geometry.dispose(); (m.material as THREE.Material).dispose(); });
+      defaultWindowMeshesRef.current = [];
+      moldObjectsRef.current.forEach(o => scene.remove(o));
+      moldObjectsRef.current = [];
       if (container && renderer.domElement.parentElement === container) {
         container.removeChild(renderer.domElement);
       }
@@ -187,8 +230,23 @@ export function WorldOverlay() {
     setShowUploadForm(false);
     setCurrentJobId(null);
     setWindowsDetected(false);
-    windowMeshesRef.current.forEach((m) => { m.geometry.dispose(); (m.material as THREE.Material).dispose(); sceneRef.current?.remove(m); });
+    windowMeshesRef.current.forEach((m) => {
+      sceneRef.current?.remove(m);
+      m.traverse(child => {
+        if ((child as THREE.LineSegments).isLineSegments) {
+          (child as THREE.LineSegments).geometry.dispose();
+          ((child as THREE.LineSegments).material as THREE.Material).dispose();
+        }
+      });
+      m.geometry.dispose();
+      const mat = m.material as THREE.MeshBasicMaterial;
+      if (mat.map) mat.map.dispose();
+      mat.dispose();
+    });
     windowMeshesRef.current = [];
+    if (ceilingMeshRef.current) { sceneRef.current?.remove(ceilingMeshRef.current); ceilingMeshRef.current.geometry.dispose(); (ceilingMeshRef.current.material as THREE.Material).dispose(); ceilingMeshRef.current = null; }
+    defaultWindowMeshesRef.current.forEach(m => { sceneRef.current?.remove(m); m.geometry.dispose(); (m.material as THREE.Material).dispose(); });
+    defaultWindowMeshesRef.current = [];
     const isRealPin = !!pinId && /^\d+$/.test(String(pinId));
 
     if (!pinId || !roomEnvRef.current) {
@@ -254,8 +312,90 @@ export function WorldOverlay() {
     return () => { cancelled = true; };
   }, [selectedPin?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  function _addDefaultArchitecture() {
+    const mesh = roomEnvRef.current?._mesh;
+    if (!mesh || !sceneRef.current) return;
+    const box = new THREE.Box3().setFromObject(mesh);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+
+    // Ceiling plane — hidden by default, toggled via LayerToolbar
+    const cGeo = new THREE.PlaneGeometry(size.x * 1.05, size.z * 1.05);
+    const cMat = new THREE.MeshStandardMaterial({ color: 0xf5f5f7, roughness: 0.88, side: THREE.DoubleSide });
+    const cMesh = new THREE.Mesh(cGeo, cMat);
+    cMesh.rotation.x = Math.PI / 2;
+    cMesh.position.set(center.x, box.max.y, center.z);
+    cMesh.receiveShadow = true;
+    cMesh.visible = showCeiling;
+    sceneRef.current.add(cMesh);
+    ceilingMeshRef.current = cMesh;
+
+    // Default windows — stencil cutout planes punch holes in walls; glass panes show sky tint
+    const ww = size.x * 0.22;
+    const wh = size.y * 0.38;
+    const midY = center.y + size.y * 0.08;
+
+    // Stencil material: writes ref=1 to stencil, no color/depth output
+    const makeCutout = (w: number, h: number) => new THREE.MeshBasicMaterial({
+      colorWrite: false, depthWrite: false,
+      stencilWrite: true, stencilRef: 1,
+      stencilFunc: THREE.AlwaysStencilFunc,
+      stencilZPass: THREE.ReplaceStencilOp,
+      side: THREE.DoubleSide,
+    });
+
+    [
+      { x: center.x - size.x * 0.22, y: midY, z: box.max.z, ry: 0 },
+      { x: center.x + size.x * 0.22, y: midY, z: box.max.z, ry: 0 },
+      { x: center.x, y: midY, z: box.min.z, ry: Math.PI },
+    ].forEach(({ x, y, z, ry }) => {
+      const geo = new THREE.PlaneGeometry(ww, wh);
+
+      // Stencil cutout (renders first, punches hole in wall)
+      const cutout = new THREE.Mesh(geo, makeCutout(ww, wh));
+      cutout.position.set(x, y, z);
+      cutout.rotation.y = ry;
+      cutout.renderOrder = -1;
+      sceneRef.current!.add(cutout);
+      defaultWindowMeshesRef.current.push(cutout);
+
+      // Glass pane — subtle blue tint over the hole
+      const glassMat = new THREE.MeshBasicMaterial({
+        color: 0xaaddff, transparent: true, opacity: 0.12,
+        side: THREE.DoubleSide, depthTest: false,
+      });
+      const wMesh = new THREE.Mesh(geo, glassMat);
+      wMesh.position.set(x, y, z);
+      wMesh.rotation.y = ry;
+      wMesh.renderOrder = 999;
+      sceneRef.current!.add(wMesh);
+      defaultWindowMeshesRef.current.push(wMesh);
+
+      // Frame outline
+      const frameMat = new THREE.LineBasicMaterial({ color: 0xc8e8ff, depthTest: false });
+      const frame = new THREE.LineSegments(new THREE.EdgesGeometry(geo), frameMat);
+      frame.renderOrder = 1000;
+      wMesh.add(frame);
+
+      const light = new THREE.PointLight(0x99ddff, 0.7, 5.0);
+      light.position.set(x, y, z + (ry === 0 ? -0.8 : 0.8));
+      sceneRef.current!.add(light);
+    });
+  }
+
   async function _loadFurnitureAndFinalize(jobId: string, cancelled: boolean) {
     if (cancelled) return;
+
+    // Enable stencil test on wall materials so window cutouts can show sky
+    for (const wallMesh of [roomEnvRef.current!._mesh, roomEnvRef.current!._innerMesh]) {
+      if (!wallMesh) continue;
+      const mat = wallMesh.material as THREE.MeshStandardMaterial;
+      mat.stencilWrite = false;
+      mat.stencilFunc = THREE.NotEqualStencilFunc;
+      mat.stencilRef = 1;
+      mat.needsUpdate = true;
+    }
+
     const fMgr = new FurnitureManager(sceneRef.current!, roomEnvRef.current!);
     furnitureMgrRef.current = fMgr;
     agentMgrRef.current!.setFurnitureManager(fMgr);
@@ -266,6 +406,7 @@ export function WorldOverlay() {
     setPipeStatus("3D world ready.");
     setRoomReady(true);
     setCurrentJobId(jobId);
+    _addDefaultArchitecture();
     detectAndPlaceWindows(jobId);
 
     const mesh = roomEnvRef.current!._mesh;
@@ -281,18 +422,92 @@ export function WorldOverlay() {
     toast.success("3D world loaded.");
   }
 
-  /* ── Auto-spawn user persona ────────────────────────────────────── */
+  /* ── Keep scan result ref in sync ─────────────────────────────── */
+  useEffect(() => { applianceScanResultRef.current = applianceScanResult; }, [applianceScanResult]);
+
+  /* ── Auto-load appliance grades when room is ready ─────────────── */
   useEffect(() => {
-    if (roomReady && agentMgrRef.current && agents.length === 0) {
-      const userName = user?.first_name || user?.email?.split("@")[0] || "You";
-      const a = agentMgrRef.current.spawnAgent("male");
-      if (a) {
-        a.label = userName;
-        a.color = "#22d3ee";
-      }
-      toast.success(`Your persona "${userName}" is ready.`);
-    }
-  }, [roomReady, user, agents.length]);
+    if (!currentJobId || !roomReady) return;
+    applianceApi.scanFromJob(currentJobId)
+      .then((result) => setApplianceScanResult(result))
+      .catch(() => { /* grades unavailable, labels just won't show */ });
+  }, [currentJobId, roomReady]);
+
+  /* ── Sync ceiling visibility with store ─────────────────────────── */
+  useEffect(() => {
+    if (ceilingMeshRef.current) ceilingMeshRef.current.visible = showCeiling;
+  }, [showCeiling]);
+
+  /* ── Manual persona spawn (called from SimulationLayerPanel) ────── */
+  const handleSpawnPersona = useCallback(() => {
+    if (!agentMgrRef.current || agents.length > 0) return;
+    const userName = user?.first_name || user?.email?.split("@")[0] || "You";
+    const a = agentMgrRef.current.spawnAgent("male");
+    if (a) { a.label = userName; a.color = "#22d3ee"; }
+    toast.success(`Persona "${userName}" spawned.`);
+  }, [user, agents.length]);
+
+  /* ── Mold layer 3D objects ─────────────────────────────────────── */
+  useEffect(() => {
+    if (!roomReady || !sceneRef.current || !roomEnvRef.current?._mesh) return;
+    const scene = sceneRef.current;
+
+    // Remove old mold objects
+    moldObjectsRef.current.forEach(o => scene.remove(o));
+    moldObjectsRef.current = [];
+
+    if (activeWorldLayer !== "mold") return;
+
+    const mesh = roomEnvRef.current._mesh;
+    const box = new THREE.Box3().setFromObject(mesh);
+    const center = box.getCenter(new THREE.Vector3());
+
+    // Map MOCK_MOLD_FINDINGS to seeded 3D positions relative to room bbox
+    const positions = [
+      { x: box.min.x + 0.8,       y: box.max.y - 0.3, z: box.min.z + 0.8      }, // ceiling NE corner
+      { x: box.max.x - 0.8,       y: box.max.y - 0.3, z: box.min.z + 0.8      }, // ceiling NW corner
+      { x: box.min.x + 0.5,       y: box.min.y + 1.1, z: center.z              }, // near-floor west wall
+      { x: center.x + 0.5,        y: box.max.y - 0.15,z: center.z             }, // ceiling center
+      { x: box.max.x - 1.2,       y: box.min.y + 1.8, z: box.max.z - 0.4      }, // south wall mid
+    ];
+
+    const SEVERITY_COLORS: Record<string, number> = {
+      low: 0x88cc44, medium: 0xff9900, high: 0xff2222,
+    };
+    const SEVERITY_INTENSITY: Record<string, number> = {
+      low: 1.0, medium: 2.0, high: 3.5,
+    };
+
+    MOCK_MOLD_FINDINGS.forEach((spot, i) => {
+      const pos = positions[i] ?? positions[0];
+      const col = SEVERITY_COLORS[spot.severity];
+      const emitI = SEVERITY_INTENSITY[spot.severity];
+
+      const geo = new THREE.SphereGeometry(0.18, 10, 10);
+      const mat = new THREE.MeshStandardMaterial({
+        color: col,
+        emissive: new THREE.Color(col),
+        emissiveIntensity: emitI,
+        transparent: true,
+        opacity: 0.88,
+      });
+      const sphere = new THREE.Mesh(geo, mat);
+      sphere.position.set(pos.x, pos.y, pos.z);
+      sphere.renderOrder = 100;
+      scene.add(sphere);
+
+      const light = new THREE.PointLight(col, 1.5, 2.5);
+      light.position.copy(sphere.position);
+      scene.add(light);
+
+      moldObjectsRef.current.push(sphere, light);
+    });
+
+    return () => {
+      moldObjectsRef.current.forEach(o => scene.remove(o));
+      moldObjectsRef.current = [];
+    };
+  }, [activeWorldLayer, roomReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Life simulation start + poll ──────────────────────────────── */
   const handleStartLifeSim = useCallback(async () => {
@@ -371,6 +586,7 @@ export function WorldOverlay() {
           agentMgrRef.current!.setFurnitureManager(fMgr);
           if (engineRef.current) engineRef.current.fm = fMgr;
           await fMgr.placeAll();
+          _addDefaultArchitecture();
 
           if (user?.id && selectedPin?.id) saveJobId(user.id, selectedPin.id, jobId);
           setCurrentJobId(jobId);
@@ -412,57 +628,141 @@ export function WorldOverlay() {
       const resp = await fetch(`/api/windows/scan-from-job/${jobId}/`, { method: "POST", headers });
       if (!resp.ok) return;
       const data = await resp.json();
-      const wins: Array<{ face: string; cx: number; cy: number; width: number; height: number; confidence: number }> = data.windows ?? [];
+      const wins: Array<{
+        face: string; cx: number; cy: number; width: number; height: number;
+        confidence: number; face_image_url?: string;
+      }> = data.windows ?? [];
       if (wins.length === 0) return;
+
+      // Replace default placeholder windows with real detected ones
+      defaultWindowMeshesRef.current.forEach(m => {
+        m.geometry.dispose(); (m.material as THREE.Material).dispose();
+        sceneRef.current?.remove(m);
+      });
+      defaultWindowMeshesRef.current = [];
 
       const mesh = roomEnvRef.current._mesh;
       const box = mesh ? new THREE.Box3().setFromObject(mesh) : null;
       const roomSize = box ? box.getSize(new THREE.Vector3()) : new THREE.Vector3(6, 3, 6);
       const roomCenter = box ? box.getCenter(new THREE.Vector3()) : new THREE.Vector3(0, 0, 0);
 
-      const FACE_PARAMS: Record<string, { nx: number; nz: number; rotY: number }> = {
-        front:  { nx:  0, nz:  roomSize.z / 2, rotY: 0 },
-        back:   { nx:  0, nz: -roomSize.z / 2, rotY: Math.PI },
-        left:   { nx: -roomSize.x / 2, nz: 0, rotY: Math.PI / 2 },
-        right:  { nx:  roomSize.x / 2, nz: 0, rotY: -Math.PI / 2 },
+      // Wall face → wall-surface position (at bounding box edge) + rotation
+      const FACE_PARAMS: Record<string, { wallX: number; wallZ: number; rotY: number; horiz: "x" | "z" }> = {
+        front: { wallX: 0,               wallZ:  box?.max.z ?? roomSize.z / 2,  rotY: 0,             horiz: "x" },
+        back:  { wallX: 0,               wallZ:  box?.min.z ?? -roomSize.z / 2, rotY: Math.PI,       horiz: "x" },
+        left:  { wallX: box?.min.x ?? -roomSize.x / 2, wallZ: 0,               rotY: Math.PI / 2,   horiz: "z" },
+        right: { wallX: box?.max.x ?? roomSize.x / 2,  wallZ: 0,               rotY: -Math.PI / 2,  horiz: "z" },
       };
 
-      wins.forEach((w) => {
+      // Cache textures per face so multiple windows on the same wall share one fetch
+      const textureCache = new Map<string, THREE.Texture>();
+      const loader = new THREE.TextureLoader();
+
+      for (const w of wins) {
         const fp = FACE_PARAMS[w.face];
-        if (!fp) return;
-        const ww = (w.width || 0.28) * roomSize.x;
-        const wh = (w.height || 0.38) * roomSize.y;
+        if (!fp) continue;
+
+        // Physical window size in Three.js world units
+        const spanH = fp.horiz === "x" ? roomSize.x : roomSize.z;
+        const ww = Math.max(w.width * spanH, 0.3);
+        const wh = Math.max(w.height * roomSize.y, 0.3);
         const geo = new THREE.PlaneGeometry(ww, wh);
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0x99ddff,
-          transparent: true,
-          opacity: 0.45,
-          emissive: new THREE.Color(0x66bbee),
-          emissiveIntensity: 0.9,
+
+        // 3D position: at the wall surface, horizontally offset by cx within the span
+        const hOffset = (w.cx - 0.5) * spanH;
+        const posX = roomCenter.x + fp.wallX + (fp.horiz === "x" ? hOffset : 0);
+        const posY = roomCenter.y + (w.cy - 0.5) * roomSize.y;
+        const posZ = roomCenter.z + fp.wallZ + (fp.horiz === "z" ? hOffset : 0);
+
+        // --- Load face image as texture and crop to the detection bbox ---
+        let glassMat: THREE.Material;
+        if (w.face_image_url) {
+          try {
+            let texture = textureCache.get(w.face);
+            if (!texture) {
+              texture = await loader.loadAsync(w.face_image_url);
+              texture.wrapS = THREE.ClampToEdgeWrapping;
+              texture.wrapT = THREE.ClampToEdgeWrapping;
+              textureCache.set(w.face, texture.clone()); // store original for next window
+            } else {
+              texture = texture.clone();
+            }
+            // Crop UV to the detection bounding box
+            // Three.js UV: origin is bottom-left, image coords: origin top-left → flip v
+            texture.repeat.set(w.width, w.height);
+            texture.offset.set(w.cx - w.width / 2, 1.0 - (w.cy + w.height / 2));
+            texture.needsUpdate = true;
+
+            glassMat = new THREE.MeshBasicMaterial({
+              map: texture,
+              transparent: true,
+              opacity: 0.45,
+              side: THREE.DoubleSide,
+              depthTest: false,
+            });
+          } catch {
+            // Texture load failed — fall back to emissive placeholder
+            glassMat = new THREE.MeshStandardMaterial({
+              color: 0x99ddff, transparent: true, opacity: 0.55,
+              emissive: new THREE.Color(0x66bbee), emissiveIntensity: 1.2,
+              side: THREE.DoubleSide, depthTest: false,
+            });
+          }
+        } else {
+          glassMat = new THREE.MeshStandardMaterial({
+            color: 0x99ddff, transparent: true, opacity: 0.55,
+            emissive: new THREE.Color(0x66bbee), emissiveIntensity: 1.2,
+            side: THREE.DoubleSide, depthTest: false,
+          });
+        }
+
+        // Stencil cutout — punches actual hole in wall so sky shows through
+        const cutoutMat = new THREE.MeshBasicMaterial({
+          colorWrite: false, depthWrite: false,
+          stencilWrite: true, stencilRef: 1,
+          stencilFunc: THREE.AlwaysStencilFunc,
+          stencilZPass: THREE.ReplaceStencilOp,
           side: THREE.DoubleSide,
         });
-        const plane = new THREE.Mesh(geo, mat);
-        plane.position.set(
-          roomCenter.x + fp.nx + (w.face === "front" || w.face === "back" ? (w.cx - 0.5) * roomSize.x : 0),
-          roomCenter.y + (w.cy - 0.5) * roomSize.y,
-          roomCenter.z + fp.nz + (w.face === "left" || w.face === "right" ? (w.cx - 0.5) * roomSize.z : 0),
-        );
+        const cutout = new THREE.Mesh(geo.clone(), cutoutMat);
+        cutout.position.set(posX, posY, posZ);
+        cutout.rotation.y = fp.rotY;
+        cutout.renderOrder = -1;
+        sceneRef.current!.add(cutout);
+        windowMeshesRef.current.push(cutout as any);
+
+        // Glass pane — photo texture at low opacity over the hole
+        const plane = new THREE.Mesh(geo, glassMat);
+        plane.position.set(posX, posY, posZ);
         plane.rotation.y = fp.rotY;
+        plane.renderOrder = 999;
+
+        // Window frame — thin silver border lines
+        const frameMat = new THREE.LineBasicMaterial({ color: 0xd0e8f0, depthTest: false });
+        const frame = new THREE.LineSegments(new THREE.EdgesGeometry(geo), frameMat);
+        frame.renderOrder = 1000;
+        plane.add(frame);
+
         sceneRef.current!.add(plane);
         windowMeshesRef.current.push(plane);
 
-        const light = new THREE.PointLight(0x99ddff, 0.6, 3.5);
-        light.position.copy(plane.position);
+        // Soft blue-white light spilling inward from the window
+        const light = new THREE.PointLight(0xc8e8ff, 0.8, Math.max(roomSize.x, roomSize.z) * 0.6);
+        light.position.set(posX, posY, posZ);
         sceneRef.current!.add(light);
-      });
+      }
+
+      // Dispose intermediate cache entries (each window owns its own cloned texture via mat.map)
+      textureCache.forEach(t => t.dispose());
 
       setWindowsDetected(true);
-      toast.success(`${wins.length} window${wins.length !== 1 ? "s" : ""} detected and placed in 3D world.`);
-    } catch { /* endpoint may not be deployed yet — silently skip */ }
+      toast.success(`${wins.length} window${wins.length !== 1 ? "s" : ""} detected and placed.`);
+    } catch { /* silently skip if endpoint unavailable */ }
   }, []);
 
   const handleTimeChange = useCallback((v: number[]) => {
     setTimeVal(v[0]);
+    timeValRef.current = v[0];
     todRef.current?.setHour(v[0]);
   }, []);
 
@@ -481,7 +781,7 @@ export function WorldOverlay() {
       <div ref={labelsRef} className="absolute inset-0 pointer-events-none overflow-hidden" />
 
       {/* ── Top header bar (always visible, safe from cutoff) ── */}
-      <div className="absolute top-0 left-0 right-0 z-[1030] flex items-center gap-3 px-4 pt-4 pb-10 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
+      <div className="absolute top-0 left-0 right-0 z-[1030] flex items-center gap-3 px-4 py-3 bg-black/80 backdrop-blur-md border-b border-white/10 pointer-events-none" style={{ transform: 'translateZ(0)' }}>
         <div className="flex items-center gap-2 flex-1 min-w-0 pointer-events-auto">
           {selectedPin?.title && (
             <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/15 min-w-0 flex items-center gap-1.5">
@@ -507,7 +807,7 @@ export function WorldOverlay() {
           )}
         </div>
         <button
-          onClick={closeOverlay}
+          onClick={() => { setWorldOpen(false); closeOverlay(); }}
           className="pointer-events-auto w-9 h-9 rounded-full flex items-center justify-center bg-black/60 backdrop-blur-md border border-white/20 text-white hover:bg-white/10 hover:border-white/40 transition-all shrink-0"
           aria-label="Close 3D World"
         >
@@ -634,15 +934,14 @@ export function WorldOverlay() {
         </div>
       )}
 
+      {/* ── Property stats layer panel ── */}
+      <StatsLayerPanel isActive={activeWorldLayer === "stats"} pinId={selectedPinId} />
+
       {/* ── Layer toolbar ── */}
       {roomReady && <LayerToolbar />}
 
-      {/* ── Energy layer panel ── */}
-      <EnergyLayerPanel
-        currentJobId={currentJobId}
-        selectedPin={selectedPin}
-        isActive={activeWorldLayer === "energy"}
-      />
+      {/* ── Mold layer panel ── */}
+      <MoldLayerPanel isActive={activeWorldLayer === "mold"} />
 
       {/* ── Simulation layer panel ── */}
       <SimulationLayerPanel
@@ -656,10 +955,96 @@ export function WorldOverlay() {
         lifeSimActive={lifeSimActive}
         onStartLifeSim={handleStartLifeSim}
         onShowLifeSimReport={() => setLifeSimReport(lifeSimReport || true)}
+        onSpawnPersona={handleSpawnPersona}
         roomReady={roomReady}
         isActive={activeWorldLayer === "simulation"}
         feedEndRef={feedEndRef}
       />
+
+      {/* ── Appliance grade labels (3D world, energy layer active) ── */}
+      {activeWorldLayer === "energy" && applianceScanResult && furnitureMgrRef.current && cameraRef.current && containerRef.current && (() => {
+        const camera = cameraRef.current!;
+        const rect = containerRef.current!.getBoundingClientRect();
+        const tmpV = new THREE.Vector3();
+        const GRADE_HEX: Record<string, string> = {
+          "A+++": "#34d399", "A++": "#34d399", "A+": "#4ade80",
+          "A": "#86efac", "B": "#a3e635", "C": "#facc15",
+          "D": "#fb923c", "E": "#f87171", "F": "#ef4444",
+        };
+        return furnitureMgrRef.current!.furniture.map((fp, idx) => {
+          const match = applianceScanResult.appliances.find(
+            a => a.detected_class === fp.type || fp.type.startsWith(a.detected_class) || a.detected_class.startsWith(fp.type)
+          );
+          if (!match) return null;
+          tmpV.set(fp.x, 1.8, fp.z);
+          tmpV.project(camera);
+          if (tmpV.z > 1) return null; // behind camera
+          const sx = (tmpV.x * 0.5 + 0.5) * rect.width;
+          const sy = (-tmpV.y * 0.5 + 0.5) * rect.height;
+          const col = GRADE_HEX[match.grade] ?? "#9ca3af";
+          return (
+            <div
+              key={`appliance-grade-${idx}`}
+              className="absolute pointer-events-none select-none"
+              style={{ left: sx, top: sy, transform: "translate(-50%,-100%)" }}
+            >
+              <div
+                className="text-xs font-bold px-2 py-1 rounded-xl border backdrop-blur-sm text-center shadow-lg"
+                style={{ color: col, borderColor: col + "60", background: col + "18", boxShadow: `0 0 10px ${col}40`, minWidth: 32 }}
+              >
+                <div className="text-lg leading-none font-black">{match.grade}</div>
+                <div className="text-[9px] opacity-70 capitalize mt-0.5">{fp.type}</div>
+              </div>
+            </div>
+          );
+        });
+      })()}
+
+      {/* ── Mold spot labels (3D world, mold layer active) ── */}
+      {activeWorldLayer === "mold" && cameraRef.current && containerRef.current && roomReady && (() => {
+        const camera = cameraRef.current!;
+        const rect = containerRef.current!.getBoundingClientRect();
+        const mesh = roomEnvRef.current?._mesh;
+        if (!mesh) return null;
+        const box = new THREE.Box3().setFromObject(mesh);
+        const center = box.getCenter(new THREE.Vector3());
+        const positions = [
+          { x: box.min.x + 0.8, y: box.max.y - 0.3, z: box.min.z + 0.8 },
+          { x: box.max.x - 0.8, y: box.max.y - 0.3, z: box.min.z + 0.8 },
+          { x: box.min.x + 0.5, y: box.min.y + 1.1, z: center.z         },
+          { x: center.x + 0.5, y: box.max.y - 0.15, z: center.z          },
+          { x: box.max.x - 1.2, y: box.min.y + 1.8, z: box.max.z - 0.4  },
+        ];
+        const SEVERITY_STYLE_MAP: Record<string, { color: string; emoji: string }> = {
+          low:    { color: "#a3e635", emoji: "🟢" },
+          medium: { color: "#fb923c", emoji: "🟡" },
+          high:   { color: "#ef4444", emoji: "🔴" },
+        };
+        const tmpV = new THREE.Vector3();
+        return MOCK_MOLD_FINDINGS.map((spot, i) => {
+          const pos = positions[i] ?? positions[0];
+          tmpV.set(pos.x, pos.y + 0.3, pos.z);
+          tmpV.project(camera);
+          if (tmpV.z > 1) return null;
+          const sx = (tmpV.x * 0.5 + 0.5) * rect.width;
+          const sy = (-tmpV.y * 0.5 + 0.5) * rect.height;
+          const sty = SEVERITY_STYLE_MAP[spot.severity];
+          return (
+            <div
+              key={`mold-${i}`}
+              className="absolute pointer-events-none select-none"
+              style={{ left: sx, top: sy, transform: "translate(-50%,-100%)" }}
+            >
+              <div
+                className="text-[10px] font-bold px-2 py-1 rounded-full border backdrop-blur-sm whitespace-nowrap"
+                style={{ color: sty.color, borderColor: sty.color + "60", background: sty.color + "18", boxShadow: `0 0 8px ${sty.color}50` }}
+              >
+                {sty.emoji} {spot.severity === "high" ? "High Risk" : spot.severity === "medium" ? "Medium" : "Low"} · {spot.coverage}%
+              </div>
+            </div>
+          );
+        });
+      })()}
 
       {/* ── House Rules Modal ── */}
       <Dialog
@@ -841,6 +1226,16 @@ export function WorldOverlay() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* ── Feature overlays rendered inside the 3D world ── */}
+      {activeOverlay === "persona-builder"        && <PersonaBuilder />}
+      {activeOverlay === "apartment-configurator" && <ApartmentConfigurator />}
+      {activeOverlay === "apt-configurator"       && <ApartmentConfigurator />}
+      {activeOverlay === "reports"                && <Reports />}
+      {activeOverlay === "material-agent"         && <MaterialAgent />}
+      {activeOverlay === "admin-assistant"        && <AdminAssistant />}
+      {activeOverlay === "neighborhood-intel"     && <NeighborhoodIntel />}
+      {activeOverlay === "appliance-energy"       && <ApplianceEnergy />}
+      {activeOverlay === "roommate-compat"        && <RoommatePanel />}
     </div>
   );
 

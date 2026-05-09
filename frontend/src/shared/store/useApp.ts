@@ -16,7 +16,7 @@ export type OverlayId =
   | "appliance-energy"
   | "roommate-compat";
 
-export type WorldLayerId = null | "energy" | "simulation";
+export type WorldLayerId = null | "energy" | "simulation" | "mold" | "stats";
 
 interface AppState {
   // Auth
@@ -73,6 +73,14 @@ interface AppState {
   setWorldLayer: (l: WorldLayerId) => void;
   toggleWorldLayer: (l: WorldLayerId) => void;
 
+  // 3D ceiling visibility (hidden by default)
+  showCeiling: boolean;
+  toggleCeiling: () => void;
+
+  // 3D world open state (separate from activeOverlay so features can open inside the world)
+  worldOpen: boolean;
+  setWorldOpen: (v: boolean) => void;
+
   // Landlord placement mode
   placementMode: boolean;
   setPlacementMode: (v: boolean) => void;
@@ -126,6 +134,12 @@ export const useApp = create<AppState>((set) => ({
   activeWorldLayer: null,
   setWorldLayer: (activeWorldLayer) => set({ activeWorldLayer }),
   toggleWorldLayer: (l) => set((s) => ({ activeWorldLayer: s.activeWorldLayer === l ? null : l })),
+
+  showCeiling: false,
+  toggleCeiling: () => set((s) => ({ showCeiling: !s.showCeiling })),
+
+  worldOpen: false,
+  setWorldOpen: (worldOpen) => set({ worldOpen }),
 
   placementMode: false,
   setPlacementMode: (placementMode) => set({ placementMode }),

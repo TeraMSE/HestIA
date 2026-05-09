@@ -1,7 +1,10 @@
 import { useMemo, useState, useCallback } from "react";
 import { useApp } from "@/shared/store/useApp";
 import { useAuthStore } from "@/shared/store/useAuthStore";
-import { X, Box, Calculator, FileText, Home as HomeIcon, Layers, Settings2, Heart, Users } from "lucide-react";
+import {
+  X, Box, Calculator, FileText, Home as HomeIcon, Layers,
+  Settings2, Heart, Users, Trash2, AlertTriangle,
+} from "lucide-react";
 import { AppliancePanoramaSection } from "@/features/appliance-energy/AppliancePanoramaSection";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,9 +12,52 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { PipelineTab } from "./PipelineTab";
 import { socialApi } from "@/services/socialApi";
+import api from "@/services/api";
+
+/** Inline confirmation step for destructive actions. */
+function DeleteConfirm({
+  label,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  label: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2">
+      <div className="flex items-center gap-2 text-red-400 text-sm font-medium">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        {label}
+      </div>
+      <div className="flex gap-2">
+        <Button
+          variant="destructive"
+          size="sm"
+          className="flex-1 rounded-xl"
+          onClick={onConfirm}
+          disabled={loading}
+        >
+          {loading ? "Deleting…" : "Yes, delete"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1 rounded-xl"
+          onClick={onCancel}
+          disabled={loading}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export function PropertyDrawer() {
-  const { pins, selectedPinId, setSelectedPinId, apartments, setSelectedApartment, openOverlay } = useApp();
+  const { pins, setPins, selectedPinId, setSelectedPinId, apartments, setSelectedApartment, openOverlay } = useApp();
   const { user } = useAuthStore();
   const pin = useMemo(() => pins.find((p) => p.id === selectedPinId), [pins, selectedPinId]);
 
@@ -19,8 +65,17 @@ export function PropertyDrawer() {
   const [isInterested, setIsInterested] = useState(false);
   const [interestLoading, setInterestLoading] = useState(false);
 
+  // Delete property state
+  const [confirmDeleteProperty, setConfirmDeleteProperty] = useState(false);
+  const [deletingProperty, setDeletingProperty] = useState(false);
+
+  // Delete 3D world state
+  const [confirmDelete3D, setConfirmDelete3D] = useState(false);
+  const [deleting3D, setDeleting3D] = useState(false);
+
   const isRealPin = pin ? !isNaN(Number(pin.id)) : false;
   const isLandlord = user?.role === "landlord";
+  const isOwner = pin && user && String((pin as any).ownerId ?? "") === String(user.id);
 
   const handleToggleInterest = useCallback(async () => {
     if (!pin || !user) { toast.error("Sign in to mark interest."); return; }
@@ -36,6 +91,62 @@ export function PropertyDrawer() {
       setInterestLoading(false);
     }
   }, [pin, user, isRealPin]);
+
+  /** Delete the property (soft-delete: sets is_active=false via DRF destroy). */
+  const handleDeleteProperty = useCallback(async () => {
+    if (!pin || !isRealPin) return;
+    setDeletingProperty(true);
+    try {
+      await api.delete(`properties/${pin.id}/`);
+      toast.success("Property deleted.");
+      // Remove pin from global store and close the drawer
+      setPins(pins.filter((p) => p.id !== pin.id));
+      setSelectedPinId(null);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail ?? "Could not delete property.";
+      toast.error(detail);
+      setConfirmDeleteProperty(false);
+    } finally {
+      setDeletingProperty(false);
+    }
+  }, [pin, isRealPin, pins, setPins, setSelectedPinId]);
+
+  /** Delete the 3D world (ReconstructionJob + artifacts). */
+  const handleDelete3D = useCallback(async () => {
+    if (!pin || !isRealPin) return;
+    setDeleting3D(true);
+    try {
+      // Fetch the job_id for this property first
+      const res = await fetch(`/api/jobs/property/${pin.id}/`);
+      if (!res.ok) throw new Error("No 3D world found for this property.");
+      const data = await res.json();
+      const jobId: string = data.job_id;
+
+      // Delete the job (owner-only endpoint)
+      const token = localStorage.getItem("access_token");
+      const del = await fetch(`/api/jobs/${jobId}/delete/`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!del.ok) {
+        const err = await del.json().catch(() => ({}));
+        throw new Error(err?.error ?? `HTTP ${del.status}`);
+      }
+      toast.success("3D world deleted. You can regenerate it by uploading a new panorama.");
+      // Update pin scan status locally
+      setPins(
+        pins.map((p) =>
+          p.id === pin.id ? { ...p, scan: "unscanned", ...(delete (p as any).has_3d, {}) } : p
+        )
+      );
+      setConfirmDelete3D(false);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Could not delete 3D world.");
+      setConfirmDelete3D(false);
+    } finally {
+      setDeleting3D(false);
+    }
+  }, [pin, isRealPin, pins, setPins]);
 
   if (!pin) return null;
 
@@ -126,6 +237,27 @@ export function PropertyDrawer() {
                   </Button>
                 </div>
               )}
+
+              {/* ── Delete Property (owner only) ─────────────────────────── */}
+              {isOwner && isRealPin && !confirmDeleteProperty && (
+                <Button
+                  id="btn-delete-property"
+                  variant="outline"
+                  className="w-full rounded-2xl gap-2 text-red-400 border-red-500/30 hover:bg-red-500/10 hover:border-red-500/50 mt-1"
+                  onClick={() => setConfirmDeleteProperty(true)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete this property
+                </Button>
+              )}
+              {confirmDeleteProperty && (
+                <DeleteConfirm
+                  label="This will permanently delete the property and all its data."
+                  onConfirm={handleDeleteProperty}
+                  onCancel={() => setConfirmDeleteProperty(false)}
+                  loading={deletingProperty}
+                />
+              )}
             </TabsContent>
 
             {/* ── 3D ────────────────────────────────────────────────────────── */}
@@ -145,6 +277,31 @@ export function PropertyDrawer() {
                   {pin.scan === "scanned" ? "🌍 Enter 3D World" : "📷 Upload & Generate 3D"}
                 </Button>
               </div>
+
+              {/* Delete 3D World (owner only, only when scanned) */}
+              {isOwner && isRealPin && (pin.scan === "scanned" || (pin as any).has_3d) && (
+                <div className="space-y-2">
+                  {!confirmDelete3D ? (
+                    <Button
+                      id="btn-delete-3d-world"
+                      variant="outline"
+                      className="w-full rounded-2xl gap-2 text-red-400 border-red-500/30 hover:bg-red-500/10 hover:border-red-500/50"
+                      onClick={() => setConfirmDelete3D(true)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete 3D World
+                    </Button>
+                  ) : (
+                    <DeleteConfirm
+                      label="This will delete the 3D scan, mesh, and all associated artifacts. You can re-generate by uploading a new panorama."
+                      onConfirm={handleDelete3D}
+                      onCancel={() => setConfirmDelete3D(false)}
+                      loading={deleting3D}
+                    />
+                  )}
+                </div>
+              )}
+
               <AppliancePanoramaSection pin={pin} />
             </TabsContent>
 

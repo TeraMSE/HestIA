@@ -2,24 +2,13 @@ import { useApp } from "@/shared/store/useApp";
 import { useAuthStore } from "@/shared/store/useAuthStore";
 import { MapShell } from "@/features/map/MapShell";
 import { MapOverlays } from "@/features/map/MapOverlays";
-import { LandlordPropertyDrawer } from "@/features/property-drawer/LandlordPropertyDrawer";
-import { PropertyPinCard } from "@/features/map/PropertyPinCard";
-import { ModuleDashboard } from "@/features/dashboard/ModuleDashboard";
-import { PersonaBuilder } from "@/features/persona/PersonaBuilder";
-import { ApartmentConfigurator } from "@/features/apartment/ApartmentConfigurator";
 import { WorldOverlay } from "@/features/world-overlay/WorldOverlay";
-import { Reports } from "@/features/reports/Reports";
-import { MaterialAgent } from "@/features/material-agent/MaterialAgent";
-import { AdminAssistant } from "@/features/admin-assistant/AdminAssistant";
-import { NeighborhoodIntel } from "@/features/neighborhood/NeighborhoodIntel";
-import { ApplianceEnergy } from "@/features/appliance-energy/ApplianceEnergy";
-import { RoommatePanel } from "@/features/roommate/RoommatePanel";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { CatChatWidget } from "@/features/rag-assistant/CatChatWidget";
 
 export default function MapHome() {
-  const { activeOverlay, placementMode, setPlacementMode, user: appUser, selectedPinId } = useApp();
+  const { worldOpen, placementMode, setPlacementMode, user: appUser } = useApp();
   const authUser = useAuthStore((s) => s.user);
   const isLandlord = authUser?.role === "landlord" || appUser?.role === "landlord";
 
@@ -32,26 +21,11 @@ export default function MapHome() {
       <MapShell />
       <MapOverlays />
 
-      {/* Pin selection UI: landlords get the full drawer, renters get the compact card */}
-      {selectedPinId && (
-        isLandlord ? <LandlordPropertyDrawer /> : <PropertyPinCard />
-      )}
+      {worldOpen && <WorldOverlay />}
 
-      {activeOverlay === "module-dashboard" && <ModuleDashboard />}
-      {activeOverlay === "persona-builder" && <PersonaBuilder />}
-      {activeOverlay === "apartment-configurator" && <ApartmentConfigurator />}
-      {activeOverlay === "visual-replay" && <WorldOverlay />}
-      {activeOverlay === "reports" && <Reports />}
-      {activeOverlay === "material-agent" && <MaterialAgent />}
-      {activeOverlay === "admin-assistant" && <AdminAssistant />}
-      {activeOverlay === "neighborhood-intel" && <NeighborhoodIntel />}
-      {activeOverlay === "appliance-energy" && <ApplianceEnergy />}
-      {activeOverlay === "apt-configurator" && <ApartmentConfigurator />}
-      {activeOverlay === "roommate-compat" && <RoommatePanel />}
-
-      {/* Landlord: Add Property button */}
-      {isLandlord && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[600] flex flex-col items-center gap-2 pointer-events-auto">
+      {/* Landlord: Add Property button — hidden while 3D world is open */}
+      {isLandlord && !worldOpen && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-[601] flex flex-col items-center gap-2 pointer-events-auto">
           {placementMode ? (
             <Button
               variant="destructive"
@@ -62,7 +36,7 @@ export default function MapHome() {
             </Button>
           ) : (
             <Button
-              className="rounded-full shadow-xl px-8 py-5 text-base font-semibold bg-[hsl(185_95%_65%/0.15)] hover:bg-[hsl(185_95%_65%/0.25)] border border-[hsl(185_95%_65%/0.5)] text-[hsl(185,95%,65%)] transition-all hover:scale-105 active:scale-95"
+              className="rounded-full shadow-xl px-8 py-5 text-base font-semibold bg-[hsl(185_95%_42%)] hover:bg-[hsl(185_95%_37%)] border border-[hsl(185_95%_65%/0.7)] text-white shadow-[0_0_20px_hsl(185_95%_65%/0.45)] transition-all hover:scale-105 active:scale-95"
               onClick={() => setPlacementMode(true)}
             >
               <Plus className="h-5 w-5 mr-2" /> Add Property

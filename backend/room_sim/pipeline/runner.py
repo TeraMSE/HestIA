@@ -1,4 +1,4 @@
-﻿"""HorizonNet pipeline runner - executes in background thread."""
+"""HorizonNet pipeline runner - executes in background thread."""
 import json
 import logging
 import sys
@@ -125,19 +125,10 @@ class PipelineRunner:
                 job.mesh_stride, job.ignore_ceiling, log
             )
 
-            # -- Step 4: Zero-Shot Object Detection (backend-aware) -------
+            # -- Step 4: Object Detection (custom best.pt, closed-vocab) ------
             set_step("object_detection")
-            log("Running Zero-Shot object detection...")
+            log("Running object detection (best.pt custom model)...")
             try:
-                FURNITURE_CLASSES = [
-                    "bed", "wardrobe", "closet", "chair", "desk", "nightstand",
-                    "table", "television", "monitor", "lamp", "ceiling light",
-                    "window", "door", "rug", "mirror", "curtain",
-                    "air conditioner", "painting", "sofa", "refrigerator",
-                    "bookshelf", "cabinet", "couch", "armchair",
-                    "washing machine", "water heater",
-                ]
-
                 # Read the effective backend (decouple picks up .env correctly)
                 try:
                     from decouple import config as _dc
@@ -149,22 +140,19 @@ class PipelineRunner:
                 log(f"Object detection backend: {_det_backend}")
 
                 if _det_backend == "gdino":
-                    # Grounding DINO: weights auto-download, no checkpoint file needed.
-                    # Resolve the YOLO fallback in case GDINO init fails.
+                    # Grounding DINO: weights auto-download; resolve YOLO fallback.
                     _yolo_fb = settings.BASE_DIR / "checkpoints" / "yolov8x-worldv2.pt"
                     if not _yolo_fb.exists():
                         _yolo_fb = settings.BASE_DIR / "checkpoints" / "yolov8s-world.pt"
                     _yolo_fb_str = str(_yolo_fb) if _yolo_fb.exists() else "yolov8x-worldv2.pt"
-                    cv_pipeline = _get_cv_pipeline("gdino", FURNITURE_CLASSES, fallback_model=_yolo_fb_str)
+                    cv_pipeline = _get_cv_pipeline("gdino", [], fallback_model=_yolo_fb_str)
                 else:
-                    # YOLO-World: resolve the checkpoint
-                    yolo_ckpt = settings.BASE_DIR / "checkpoints" / "yolov8x-worldv2.pt"
-                    if not yolo_ckpt.exists():
-                        yolo_ckpt = settings.BASE_DIR / "checkpoints" / "yolov8s-world.pt"
-                    if not yolo_ckpt.exists():
-                        log("WARNING: YOLO-World checkpoint not found. Skipping detection.")
-                        yolo_ckpt = None
-                    cv_pipeline = _get_cv_pipeline(str(yolo_ckpt), FURNITURE_CLASSES) if yolo_ckpt else None
+                    # Default: custom closed-vocabulary best.pt
+                    best_ckpt = settings.BASE_DIR / "checkpoints" / "best.pt"
+                    if not best_ckpt.exists():
+                        log("WARNING: best.pt checkpoint not found. Skipping detection.")
+                        best_ckpt = None
+                    cv_pipeline = _get_cv_pipeline(str(best_ckpt), []) if best_ckpt else None
 
                 if cv_pipeline is not None:
                     faces_dir = job_dir / "cubemap_faces"
